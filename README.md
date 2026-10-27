@@ -2,6 +2,8 @@
 
 A plugin that loads only specific parts of a card without overwriting the rest.
 
+![Advanced load in the character maker](AdvancedLoader/screenshots/5_ex.png)
+
 ## Features
 
 - **Advanced load** button next to the maker's *Load character* and *Clothes > Load* pages.
@@ -10,6 +12,14 @@ A plugin that loads only specific parts of a card without overwriting the rest.
 - **Accessories**: select which accessories to copy, then either overwrite the old ones or put them into free slots.
 - **Material Editor groups** (Body, Head, Eyes, Hair, Clothes) with the *Clean copy* feature: changes of the group are reset before the card's changes are applied, so nothing from earlier edits is left behind.
 - The game's original load windows are not changed.
+
+## Screenshots
+
+| Character | Accessories, Material Editor, other plugins |
+|---|---|
+| ![Character](AdvancedLoader/screenshots/1_body.png) | ![Accessories and Material Editor](AdvancedLoader/screenshots/2_body_acc_mat.png) |
+| **Accessories into free slots** | **Clothes** |
+| ![Accessories into free slots](AdvancedLoader/screenshots/3_acc.png) | ![Clothes](AdvancedLoader/screenshots/4_clothes.png) |
 
 ## Requirements
 
