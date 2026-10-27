@@ -1,0 +1,63 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net46</TargetFramework>
+    <AssemblyName>HS2_AdvancedLoader</AssemblyName>
+    <RootNamespace>AdvancedLoader</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <DebugType>embedded</DebugType>
+
+    <Version>1.0.0</Version>
+    <AssemblyTitle>Advanced Loader</AssemblyTitle>
+    <Product>Advanced Loader</Product>
+    <Description>Load chosen parts of character and clothes cards in Honey Select 2 maker</Description>
+    <Company>Aktymel</Company>
+    <Copyright>Copyright © 2026 Aktymel</Copyright>
+  </PropertyGroup>
+
+  <!-- The game folder is needed for references. Pass it with -p:GamePath=..., or put it in GamePath.user.props (not committed):
+       <Project><PropertyGroup><GamePath>D:\Games\HoneySelect2</GamePath></PropertyGroup></Project> -->
+  <Import Project="GamePath.user.props" Condition="Exists('GamePath.user.props')" />
+
+  <PropertyGroup>
+    <ManagedPath>$(GamePath)\HoneySelect2_Data\Managed</ManagedPath>
+    <PluginsPath>$(GamePath)\BepInEx\plugins</PluginsPath>
+  </PropertyGroup>
+
+  <Target Name="CheckGamePath" BeforeTargets="ResolveAssemblyReferences">
+    <Error Condition="'$(GamePath)' == '' Or !Exists('$(ManagedPath)')" Text="Set GamePath to the Honey Select 2 folder (dotnet build -p:GamePath=... or GamePath.user.props)." />
+  </Target>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="$(GamePath)\BepInEx\core\BepInEx.dll" Private="false" />
+    <Reference Include="$(GamePath)\BepInEx\core\0Harmony.dll" Private="false" />
+    <!-- Plugins can sit in any subfolder of BepInEx\plugins depending on the repack -->
+    <Reference Include="$(PluginsPath)\**\HS2API.dll" Private="false" />
+    <Reference Include="$(PluginsPath)\**\HS2_ExtensibleSaveFormat.dll" Private="false" />
+    <!-- Soft dependencies: only the *Bridge classes touch these types, and only when those plugins are loaded -->
+    <Reference Include="$(PluginsPath)\**\HS2_OverlayMods.dll" Private="false" />
+    <Reference Include="$(PluginsPath)\**\HS2ABMX.dll" Private="false" />
+    <Reference Include="$(PluginsPath)\**\HS2_MaterialEditor.dll" Private="false" />
+    <Reference Include="$(ManagedPath)\Assembly-CSharp.dll" Private="false" />
+    <Reference Include="$(ManagedPath)\Assembly-CSharp-firstpass.dll" Private="false" />
+    <Reference Include="$(ManagedPath)\IL.dll" Private="false" />
+    <Reference Include="$(ManagedPath)\UnityEngine.dll" Private="false" />
+    <Reference Include="$(ManagedPath)\UnityEngine.CoreModule.dll" Private="false" />
+    <Reference Include="$(ManagedPath)\UnityEngine.IMGUIModule.dll" Private="false" />
+    <Reference Include="$(ManagedPath)\UnityEngine.UI.dll" Private="false" />
+    <Reference Include="$(ManagedPath)\UnityEngine.UIModule.dll" Private="false" />
+    <Reference Include="$(ManagedPath)\UnityEngine.TextRenderingModule.dll" Private="false" />
+    <Reference Include="$(ManagedPath)\UnityEngine.ImageConversionModule.dll" Private="false" />
+    <Reference Include="$(ManagedPath)\UniRx.dll" Private="false" />
+  </ItemGroup>
+
+  <!-- Copies the built plugin into the game; turn off with -p:CopyToGame=false -->
+  <Target Name="CopyToGame" AfterTargets="Build" Condition="'$(CopyToGame)' != 'false'">
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(PluginsPath)" />
+  </Target>
+
+</Project>
