@@ -2,6 +2,8 @@
 
 A Honey Select 2 plugin that loads only the parts you want from a character or clothes card in the character maker.
 
+Version 1.0 supports Honey Select 2 only.
+
 ## Features
 
 - **Advanced load** button next to the maker's *Load character* and *Clothes > Load* pages. It uses the card selected in the game's own list and shows character or clothes options depending on the page.
@@ -38,7 +40,7 @@ A keyboard shortcut for the window can be set in the plugin settings (F1).
 
 ## Changelog
 
-- 1.0.0 — first public release.
+- 1.0.0 — first public release (Honey Select 2 only).
 
 ## License
 
