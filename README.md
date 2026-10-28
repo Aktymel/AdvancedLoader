@@ -24,13 +24,6 @@ Also built for AI-Shoujo, but not tested there yet.
 - Load all or chosen outfits into the same, shifted or new outfit slots; the other outfits are kept.
 
 ![Outfits](AdvancedLoader/screenshots/6_kks_outfits.png)
-
-### Other plugins
-
-- Every plugin with data on the selected card is listed; tick the ones to load from the card.
-
-![Other plugins](AdvancedLoader/screenshots/8_plugins.png)
-
 ## Screenshots
 
 | Character | Accessories, Material Editor, other plugins |
@@ -38,6 +31,8 @@ Also built for AI-Shoujo, but not tested there yet.
 | ![Character](AdvancedLoader/screenshots/1_body.png) | ![Accessories and Material Editor](AdvancedLoader/screenshots/2_body_acc_mat.png) |
 | **Accessories into free slots** | **Clothes** |
 | ![Accessories into free slots](AdvancedLoader/screenshots/3_acc.png) | ![Clothes](AdvancedLoader/screenshots/4_clothes.png) |
+| **Other plugins** | |
+| ![Other plugins](AdvancedLoader/screenshots/8_plugins.png) | |
 
 ## Requirements
 
