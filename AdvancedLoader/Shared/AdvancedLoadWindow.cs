@@ -1,9 +1,13 @@
 using System.Collections.Generic;
 using System.Linq;
-using CharaCustom;
 using KKAPI.Maker;
 using KKAPI.Utilities;
 using UnityEngine;
+#if HS2
+using CharaCustom;
+#elif KKS
+using ChaCustom;
+#endif
 
 namespace AdvancedLoader
 {
@@ -18,6 +22,14 @@ namespace AdvancedLoader
         private const float MaxHeight = 640;
         private static readonly string[] AccessoryModeNames = { "Keep current", "All from card", "Selected" };
         private static readonly string[] PlacementNames = { "Same slots", "Shift by", "Free slots" };
+#if KKS
+        private static readonly string[] OutfitModeNames = { "All from card", "Selected" };
+        private static readonly string[] OutfitPlacementNames = { "Same outfits", "Shift by", "New outfits" };
+
+        // Card outfit -> character outfit for the current options, and the card outfit whose accessories are listed
+        private Dictionary<int, int> _outfitTargets = new Dictionary<int, int>();
+        private int _shownOutfit = -1;
+#endif
 
         private readonly AdvancedLoaderPlugin _plugin;
         private readonly NativeLoadPanels _panels;
@@ -81,6 +93,10 @@ namespace AdvancedLoader
             else if (_card == null || _card.Path != path)
             {
                 _card = CardData.Read(path, _mode, (byte)MakerAPI.GetMakerSex());
+#if KKS
+                _shownOutfit = -1;
+                Options.SelectedOutfits.Clear();
+#endif
                 Options.SelectedSlots.Clear();
             }
 
@@ -91,13 +107,40 @@ namespace AdvancedLoader
         {
             var options = Options;
             var chaCtrl = MakerAPI.GetCharacterControl();
+            var occupancyOf = chaCtrl == null ? null : chaCtrl.nowCoordinate;
+#if KKS
+            if (chaCtrl != null && _mode == LoadMode.Character && _card != null && _card.CardOutfits.Count > 0)
+            {
+                _outfitTargets = Outfits.MapTargets(options, _card.CardOutfits.Count, chaCtrl.chaFile.coordinate.Length);
+
+                // Accessories are listed for one card outfit: the first selected one, or the one matching the worn outfit
+                var shown = options.OutfitSelection == OutfitMode.Selected && options.SelectedOutfits.Count > 0
+                    ? options.SelectedOutfits.Min()
+                    : Mathf.Min(chaCtrl.fileStatus.coordinateType, _card.CardOutfits.Count - 1);
+                if (shown != _shownOutfit)
+                {
+                    _shownOutfit = shown;
+                    _card.ShowOutfit(shown);
+                    options.SelectedSlots.Clear();
+                }
+
+                // Free slots are counted in the outfit the shown card outfit is loaded into
+                occupancyOf = _outfitTargets.TryGetValue(shown, out var target) && target < chaCtrl.chaFile.coordinate.Length
+                    ? chaCtrl.chaFile.coordinate[target]
+                    : new ChaFileCoordinate();
+            }
+            else
+            {
+                _outfitTargets = new Dictionary<int, int>();
+            }
+#endif
             if (_card?.AccessorySlots == null || chaCtrl == null || options.Accessories == AccessoryMode.Keep)
             {
                 _targets = new Dictionary<int, int>();
                 _sourceCount = 0;
                 return;
             }
-            var occupied = AccessoryData.ReadOccupancy(chaCtrl.nowCoordinate, chaCtrl.chaFile);
+            var occupied = AccessoryData.ReadOccupancy(occupancyOf, chaCtrl.chaFile);
             var sources = AccessoryData.SourceSlots(options.Accessories, _card.AccessorySlots, options.SelectedSlots);
             var sourceList = sources.ToList();
             _sourceCount = sourceList.Count;
@@ -110,10 +153,7 @@ namespace AdvancedLoader
             if (!Shown) return;
             if (!_placed)
             {
-                var position = NativeLoadPanels.DefaultPosition;
-                var width = Mathf.Max(MinWidth, Screen.width * 0.125f);
-                var height = Mathf.Clamp(Screen.height - position.y - 10, 200, MaxHeight);
-                _rect = new Rect(position.x, position.y, width, height);
+                _rect = NativeLoadPanels.DefaultWindowRect(MinWidth, MaxHeight);
                 _placed = true;
             }
 
@@ -181,6 +221,10 @@ namespace AdvancedLoader
             }
             DrawClothes(options);
             EndSection();
+
+#if KKS
+            if (_mode == LoadMode.Character && (options.Clothes || options.Accessories != AccessoryMode.Keep)) DrawOutfits(options);
+#endif
 
             BeginSection("Accessories");
             options.Accessories = (AccessoryMode)GUILayout.Toolbar((int)options.Accessories, AccessoryModeNames);
@@ -391,6 +435,60 @@ namespace AdvancedLoader
             return _targets.TryGetValue(sourceSlot, out var target) ? $"  → {target + 1:00}" : "  → no slot";
         }
 
+#if KKS
+        /// <summary>
+        /// Which card outfits are loaded and into which of the character's outfits.
+        /// </summary>
+        private void DrawOutfits(LoadOptions options)
+        {
+            BeginSection("Outfits");
+            if (_card == null || _card.CardOutfits.Count == 0)
+            {
+                GUILayout.Label("Select a card to see its outfits.");
+                EndSection();
+                return;
+            }
+
+            options.OutfitSelection = (OutfitMode)GUILayout.Toolbar((int)options.OutfitSelection, OutfitModeNames);
+            options.OutfitPlacement = (OutfitPlacement)GUILayout.Toolbar((int)options.OutfitPlacement, OutfitPlacementNames);
+            if (options.OutfitPlacement == OutfitPlacement.Shift)
+            {
+                GUILayout.BeginHorizontal();
+                GUILayout.Label("Shift by", GUILayout.ExpandWidth(false));
+                if (GUILayout.Button("-", GUILayout.Width(26))) options.OutfitShift = Mathf.Max(0, options.OutfitShift - 1);
+                if (int.TryParse(GUILayout.TextField(options.OutfitShift.ToString(), GUILayout.Width(50)), out var shift)) options.OutfitShift = Mathf.Clamp(shift, 0, 100);
+                if (GUILayout.Button("+", GUILayout.Width(26))) options.OutfitShift = Mathf.Min(100, options.OutfitShift + 1);
+                GUILayout.Label("outfits");
+                GUILayout.EndHorizontal();
+            }
+            DrawWarning(Dependencies.MoreOutfits.Warning("only the 4 base outfits exist, card outfits past them are not loaded."));
+
+            var chaCtrl = MakerAPI.GetCharacterControl();
+            foreach (var outfit in _card.CardOutfits)
+            {
+                var target = _outfitTargets.TryGetValue(outfit.Index, out var t)
+                    ? $"  → {t + 1:00}. {(t < chaCtrl.chaFile.coordinate.Length ? Outfits.GetName(chaCtrl, t) ?? Outfits.DefaultName(t) : "new outfit")}"
+                    : "";
+                var label = $"{outfit.Index + 1:00}.  {outfit.Name}{target}";
+                if (options.OutfitSelection == OutfitMode.Selected)
+                {
+                    var isOn = options.SelectedOutfits.Contains(outfit.Index);
+                    if (GUILayout.Toggle(isOn, label) == isOn) continue;
+                    if (isOn) options.SelectedOutfits.Remove(outfit.Index);
+                    else options.SelectedOutfits.Add(outfit.Index);
+                }
+                else
+                {
+                    GUILayout.Label(label);
+                }
+            }
+
+            if (options.Accessories == AccessoryMode.Selected && _outfitTargets.Count > 1)
+                DrawWarning($"Accessories are listed for outfit {_shownOutfit + 1}; the ticked slots are used for every loaded outfit.");
+            EndSection();
+        }
+#endif
+
         private void DrawAccessorySlots(LoadOptions options)
         {
             if (_card == null)
@@ -463,6 +561,10 @@ namespace AdvancedLoader
             }
             if (options.Clothes && options.ClothesParts != ClothesPart.None)
                 parts.Add(options.ClothesParts == ClothesPart.All ? "Clothes" : $"Clothes ({ClothesParts.Describe(options.ClothesParts)})");
+#if KKS
+            if (_mode == LoadMode.Character && (options.Clothes || options.Accessories != AccessoryMode.Keep))
+                parts.Add(_outfitTargets.Count == 0 ? "no outfits" : $"outfits {string.Join(", ", _outfitTargets.Keys.OrderBy(x => x).Select(x => (x + 1).ToString()).ToArray())}");
+#endif
             if (options.ReplacesAllAccessories) parts.Add("all accessories");
             else if (options.Accessories != AccessoryMode.Keep && _targets.Count > 0)
                 parts.Add("accessories into slots " + string.Join(", ", _targets.Values.OrderBy(x => x).Select(x => (x + 1).ToString()).ToArray()));

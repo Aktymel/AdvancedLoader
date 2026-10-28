@@ -82,6 +82,14 @@ namespace AdvancedLoader
             }
         }
 
+        /// <summary>Where the Advanced load window opens first: at the button, down to the bottom of the screen.</summary>
+        public static Rect DefaultWindowRect(float minWidth, float maxHeight)
+        {
+            var position = DefaultPosition;
+            var height = Mathf.Clamp(Screen.height - position.y - 10, 200, maxHeight);
+            return new Rect(position.x, position.y, Mathf.Max(minWidth, Screen.width * 0.125f), height);
+        }
+
         /// <returns>True when the "Advanced load" button was clicked.</returns>
         public bool DrawOpenButton()
         {

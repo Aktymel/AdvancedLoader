@@ -1,0 +1,29 @@
+<Project>
+  <!-- Settings shared by every game's project (HS2/, KKS/…). -->
+
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <DebugType>embedded</DebugType>
+    <RootNamespace>AdvancedLoader</RootNamespace>
+
+    <Version>1.1.0</Version>
+    <AssemblyTitle>Advanced Loader</AssemblyTitle>
+    <Product>Advanced Loader</Product>
+    <Description>Load chosen parts of character and clothes cards in the character maker</Description>
+    <Company>Aktymel</Company>
+    <Copyright>Copyright © 2026 Aktymel</Copyright>
+  </PropertyGroup>
+
+  <!-- Game folders, one per game (not committed):
+       <Project><PropertyGroup>
+         <HS2GamePath>D:\Games\HoneySelect2</HS2GamePath>
+         <KKSGamePath>D:\Games\KoikatsuSunshine</KKSGamePath>
+       </PropertyGroup></Project>
+       A single project can also be built with -p:GamePath=... -->
+  <Import Project="$(MSBuildThisFileDirectory)GamePath.user.props" Condition="Exists('$(MSBuildThisFileDirectory)GamePath.user.props')" />
+
+  <ItemGroup>
+    <Compile Include="$(MSBuildThisFileDirectory)Shared\**\*.cs" />
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+</Project>

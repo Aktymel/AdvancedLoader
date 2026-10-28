@@ -1,12 +1,15 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
-using AIChara;
 using ExtensibleSaveFormat;
 using HarmonyLib;
 using KKABMX.Core;
 using KKABMX.GUI;
 using UnityEngine;
+#if HS2
+using AIChara;
+#elif KKS
+#endif
 
 namespace AdvancedLoader
 {

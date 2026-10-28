@@ -19,12 +19,16 @@ namespace AdvancedLoader
     [BepInDependency(MaterialEditorPresence.GUID, BepInDependency.DependencyFlags.SoftDependency)]
     [BepInDependency(AbmxPresence.GUID, BepInDependency.DependencyFlags.SoftDependency)]
     [BepInDependency("KCOX", BepInDependency.DependencyFlags.SoftDependency)]
+#if HS2
     [BepInProcess("HoneySelect2")]
+#elif KKS
+    [BepInProcess("KoikatsuSunshine")]
+#endif
     public class AdvancedLoaderPlugin : BaseUnityPlugin
     {
         public const string GUID = "com.aktymel.advancedloader";
         public const string PluginName = "Advanced Loader";
-        public const string Version = "1.0.0";
+        public const string Version = "1.1.0";
 
         internal static AdvancedLoaderPlugin Instance;
         internal static new ManualLogSource Logger;

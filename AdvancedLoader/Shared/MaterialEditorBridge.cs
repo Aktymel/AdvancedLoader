@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Reflection;
-using AIChara;
 using ExtensibleSaveFormat;
 using HarmonyLib;
 using KK_Plugins;
@@ -12,6 +11,10 @@ using MaterialEditorAPI;
 using MessagePack;
 using UnityEngine;
 using static KK_Plugins.MaterialEditor.MaterialEditorCharaController;
+#if HS2
+using AIChara;
+#elif KKS
+#endif
 
 namespace AdvancedLoader
 {
@@ -127,7 +130,8 @@ namespace AdvancedLoader
         /// <summary>
         /// Copy body, head, eye, hair or clothes material changes from the card.
         /// </summary>
-        public static void ApplyGroups(ChaControl chaCtrl, object source, MaterialGroup groups, bool clean)
+        /// <param name="sourceCoordinate">Outfit of the source to take clothes from, or null when it has a single outfit.</param>
+        public static void ApplyGroups(ChaControl chaCtrl, object source, MaterialGroup groups, bool clean, int? sourceCoordinate = null)
         {
             if (groups == MaterialGroup.None) return;
             var controller = GetController(chaCtrl);
@@ -154,21 +158,23 @@ namespace AdvancedLoader
             Apply(controller, source as MaterialEditorData ?? new MaterialEditorData(),
                 (type, slot, material) => Matches(type, material, characterGroups),
                 (type, slot, renderer) => Matches(type, renderer, rendererGroups),
-                clean);
+                clean, sourceCoordinate);
         }
 
         /// <summary>
         /// Give each accessory slot the Material Editor changes from its source (the card, or the snapshot taken before the load).
         /// Always clean per slot, because leftovers from the accessory that was in the slot before are the problem being fixed.
         /// </summary>
-        public static void ApplyAccessorySlots(ChaControl chaCtrl, IDictionary<int, object> sourcePerSlot) => ApplySlots(chaCtrl, ObjectType.Accessory, sourcePerSlot);
+        public static void ApplyAccessorySlots(ChaControl chaCtrl, IDictionary<int, object> sourcePerSlot, int? sourceCoordinate = null) =>
+            ApplySlots(chaCtrl, ObjectType.Accessory, sourcePerSlot, sourceCoordinate);
 
         /// <summary>
         /// Same for clothes pieces (slot = ChaFileDefine.ClothesKind): pieces that were kept get their previous data back.
         /// </summary>
-        public static void ApplyClothingSlots(ChaControl chaCtrl, IDictionary<int, object> sourcePerSlot) => ApplySlots(chaCtrl, ObjectType.Clothing, sourcePerSlot);
+        public static void ApplyClothingSlots(ChaControl chaCtrl, IDictionary<int, object> sourcePerSlot, int? sourceCoordinate = null) =>
+            ApplySlots(chaCtrl, ObjectType.Clothing, sourcePerSlot, sourceCoordinate);
 
-        private static void ApplySlots(ChaControl chaCtrl, ObjectType objectType, IDictionary<int, object> sourcePerSlot)
+        private static void ApplySlots(ChaControl chaCtrl, ObjectType objectType, IDictionary<int, object> sourcePerSlot, int? sourceCoordinate)
         {
             var controller = GetController(chaCtrl);
             if (controller == null) return;
@@ -179,8 +185,54 @@ namespace AdvancedLoader
                 Apply(controller, bySource.Key as MaterialEditorData ?? new MaterialEditorData(),
                     (type, slot, material) => type == objectType && slots.Contains(slot),
                     (type, slot, renderer) => type == objectType && slots.Contains(slot),
-                    true);
+                    true, sourceCoordinate);
             }
+        }
+
+        /// <summary>
+        /// Copy the clothes and accessory changes of one outfit into an outfit slot that is not worn now.
+        /// Material Editor's API only works on the worn outfit, so its lists are edited directly; the changes are applied
+        /// by Material Editor when that outfit is put on.
+        /// </summary>
+        /// <param name="sourceCoordinate">Outfit index in the source, or null when the source has a single outfit (clothes card).</param>
+        /// <param name="include">Which clothes/accessory slots to copy (all when null); other slots of the target are left alone.</param>
+        public static void CopyOutfit(ChaControl chaCtrl, object sourceObject, int? sourceCoordinate, int targetCoordinate, Func<ObjectType, int, bool> include = null)
+        {
+            var controller = GetController(chaCtrl);
+            if (controller == null) return;
+            var source = sourceObject as MaterialEditorData ?? new MaterialEditorData();
+            var traverse = Traverse.Create(controller);
+            var setTexture = AccessTools.Method(typeof(MaterialEditorCharaController), "SetAndGetTextureID");
+
+            bool Included(ObjectType type, int slot) => PerOutfit(type) && (include == null || include(type, slot));
+            bool FromSource(ObjectType type, int coordinate) => !sourceCoordinate.HasValue || coordinate == sourceCoordinate.Value;
+
+            void Replace<T>(string key, List<T> from, Func<T, ObjectType> type, Func<T, int> slot, Func<T, int> coordinate, Action<T, int> setCoordinate, Action<T> fix = null)
+            {
+                var list = traverse.Field(key).GetValue<List<T>>();
+                if (list == null) return;
+                list.RemoveAll(x => Included(type(x), slot(x)) && coordinate(x) == targetCoordinate);
+                foreach (var entry in Copy(from.Where(x => Included(type(x), slot(x)) && FromSource(type(x), coordinate(x))).ToList()))
+                {
+                    setCoordinate(entry, targetCoordinate);
+                    fix?.Invoke(entry);
+                    list.Add(entry);
+                }
+            }
+
+            Replace(ShaderListKey, source.Shaders, x => x.ObjectType, x => x.Slot, x => x.CoordinateIndex, (x, c) => x.CoordinateIndex = c);
+            Replace(FloatListKey, source.Floats, x => x.ObjectType, x => x.Slot, x => x.CoordinateIndex, (x, c) => x.CoordinateIndex = c);
+            Replace(ColorListKey, source.Colors, x => x.ObjectType, x => x.Slot, x => x.CoordinateIndex, (x, c) => x.CoordinateIndex = c);
+            Replace(KeywordListKey, source.Keywords, x => x.ObjectType, x => x.Slot, x => x.CoordinateIndex, (x, c) => x.CoordinateIndex = c);
+            Replace(RendererListKey, source.Renderers, x => x.ObjectType, x => x.Slot, x => x.CoordinateIndex, (x, c) => x.CoordinateIndex = c);
+            // Texture ids point into the source's texture list; register the bytes with this character to get its id
+            Replace(TextureListKey, source.Textures, x => x.ObjectType, x => x.Slot, x => x.CoordinateIndex, (x, c) => x.CoordinateIndex = c, x =>
+            {
+                if (!x.TexID.HasValue) return;
+                x.TexID = source.TextureData.TryGetValue(x.TexID.Value, out var bytes) && bytes != null && setTexture != null
+                    ? (int?)(int)setTexture.Invoke(controller, new object[] { bytes })
+                    : null;
+            });
         }
 
         /// <summary>
@@ -208,19 +260,32 @@ namespace AdvancedLoader
             return result;
         }
 
+        /// <summary>
+        /// Clothes and accessories have their data per outfit (CoordinateIndex); everything else uses index 0.
+        /// </summary>
+        private static bool PerOutfit(ObjectType type) => type == ObjectType.Clothing || type == ObjectType.Accessory;
+
+        /// <summary>Source entry belongs to the outfit being copied (null: the source has only one outfit, e.g. a clothes card).</summary>
+        private static bool FromCoordinate(ObjectType type, int coordinateIndex, int? sourceCoordinate) =>
+            !sourceCoordinate.HasValue || !PerOutfit(type) || coordinateIndex == sourceCoordinate.Value;
+
+        /// <summary>Character entry belongs to the outfit that is worn now, the only one the Set/Remove API works on.</summary>
+        private static bool IsCurrentOutfit(MaterialEditorCharaController controller, ObjectType type, int coordinateIndex) =>
+            !PerOutfit(type) || coordinateIndex == controller.CurrentCoordinateIndex;
+
         private static void Apply(MaterialEditorCharaController controller, MaterialEditorData source,
-            Func<ObjectType, int, string, bool> materialFilter, Func<ObjectType, int, string, bool> rendererFilter, bool clean)
+            Func<ObjectType, int, string, bool> materialFilter, Func<ObjectType, int, string, bool> rendererFilter, bool clean, int? sourceCoordinate = null)
         {
             if (clean) RemoveCurrent(controller, materialFilter, rendererFilter);
 
-            foreach (var entry in source.Shaders.Where(x => materialFilter(x.ObjectType, x.Slot, x.MaterialName)))
+            foreach (var entry in source.Shaders.Where(x => materialFilter(x.ObjectType, x.Slot, x.MaterialName) && FromCoordinate(x.ObjectType, x.CoordinateIndex, sourceCoordinate)))
             {
                 if (!TryFindMaterial(controller, entry.ObjectType, entry.Slot, entry.MaterialName, out var go, out var material)) continue;
                 if (!string.IsNullOrEmpty(entry.ShaderName)) controller.SetMaterialShader(entry.Slot, entry.ObjectType, material, entry.ShaderName, go);
                 if (entry.RenderQueue.HasValue) controller.SetMaterialShaderRenderQueue(entry.Slot, entry.ObjectType, material, entry.RenderQueue.Value, go);
             }
 
-            foreach (var entry in source.Textures.Where(x => materialFilter(x.ObjectType, x.Slot, x.MaterialName)))
+            foreach (var entry in source.Textures.Where(x => materialFilter(x.ObjectType, x.Slot, x.MaterialName) && FromCoordinate(x.ObjectType, x.CoordinateIndex, sourceCoordinate)))
             {
                 if (!TryFindMaterial(controller, entry.ObjectType, entry.Slot, entry.MaterialName, out var go, out var material)) continue;
                 if (entry.TexID.HasValue && source.TextureData.TryGetValue(entry.TexID.Value, out var bytes) && bytes != null)
@@ -229,26 +294,26 @@ namespace AdvancedLoader
                 if (entry.Scale.HasValue) controller.SetMaterialTextureScale(entry.Slot, entry.ObjectType, material, entry.Property, entry.Scale.Value, go);
             }
 
-            foreach (var entry in source.Floats.Where(x => materialFilter(x.ObjectType, x.Slot, x.MaterialName)))
+            foreach (var entry in source.Floats.Where(x => materialFilter(x.ObjectType, x.Slot, x.MaterialName) && FromCoordinate(x.ObjectType, x.CoordinateIndex, sourceCoordinate)))
             {
                 if (!TryFindMaterial(controller, entry.ObjectType, entry.Slot, entry.MaterialName, out var go, out var material)) continue;
                 if (float.TryParse(entry.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var value))
                     controller.SetMaterialFloatProperty(entry.Slot, entry.ObjectType, material, entry.Property, value, go);
             }
 
-            foreach (var entry in source.Colors.Where(x => materialFilter(x.ObjectType, x.Slot, x.MaterialName)))
+            foreach (var entry in source.Colors.Where(x => materialFilter(x.ObjectType, x.Slot, x.MaterialName) && FromCoordinate(x.ObjectType, x.CoordinateIndex, sourceCoordinate)))
             {
                 if (!TryFindMaterial(controller, entry.ObjectType, entry.Slot, entry.MaterialName, out var go, out var material)) continue;
                 controller.SetMaterialColorProperty(entry.Slot, entry.ObjectType, material, entry.Property, entry.Value, go);
             }
 
-            foreach (var entry in source.Keywords.Where(x => materialFilter(x.ObjectType, x.Slot, x.MaterialName)))
+            foreach (var entry in source.Keywords.Where(x => materialFilter(x.ObjectType, x.Slot, x.MaterialName) && FromCoordinate(x.ObjectType, x.CoordinateIndex, sourceCoordinate)))
             {
                 if (!TryFindMaterial(controller, entry.ObjectType, entry.Slot, entry.MaterialName, out var go, out var material)) continue;
                 controller.SetMaterialKeywordProperty(entry.Slot, entry.ObjectType, material, entry.Property, entry.Value, go);
             }
 
-            foreach (var entry in source.Renderers.Where(x => rendererFilter(x.ObjectType, x.Slot, x.RendererName)))
+            foreach (var entry in source.Renderers.Where(x => rendererFilter(x.ObjectType, x.Slot, x.RendererName) && FromCoordinate(x.ObjectType, x.CoordinateIndex, sourceCoordinate)))
             {
                 if (!TryFindRenderer(controller, entry.ObjectType, entry.Slot, entry.RendererName, out var go, out var renderer)) continue;
                 controller.SetRendererProperty(entry.Slot, entry.ObjectType, renderer, entry.Property, entry.Value, go);
@@ -265,7 +330,7 @@ namespace AdvancedLoader
             var traverse = Traverse.Create(controller);
 
             var floats = traverse.Field(FloatListKey).GetValue<List<MaterialFloatProperty>>();
-            foreach (var entry in floats.Where(x => materialFilter(x.ObjectType, x.Slot, x.MaterialName)).ToList())
+            foreach (var entry in floats.Where(x => materialFilter(x.ObjectType, x.Slot, x.MaterialName) && IsCurrentOutfit(controller, x.ObjectType, x.CoordinateIndex)).ToList())
             {
                 if (TryFindMaterial(controller, entry.ObjectType, entry.Slot, entry.MaterialName, out var go, out var material))
                     controller.RemoveMaterialFloatProperty(entry.Slot, entry.ObjectType, material, entry.Property, go);
@@ -273,7 +338,7 @@ namespace AdvancedLoader
             }
 
             var colors = traverse.Field(ColorListKey).GetValue<List<MaterialColorProperty>>();
-            foreach (var entry in colors.Where(x => materialFilter(x.ObjectType, x.Slot, x.MaterialName)).ToList())
+            foreach (var entry in colors.Where(x => materialFilter(x.ObjectType, x.Slot, x.MaterialName) && IsCurrentOutfit(controller, x.ObjectType, x.CoordinateIndex)).ToList())
             {
                 if (TryFindMaterial(controller, entry.ObjectType, entry.Slot, entry.MaterialName, out var go, out var material))
                     controller.RemoveMaterialColorProperty(entry.Slot, entry.ObjectType, material, entry.Property, go);
@@ -281,7 +346,7 @@ namespace AdvancedLoader
             }
 
             var keywords = traverse.Field(KeywordListKey).GetValue<List<MaterialKeywordProperty>>();
-            foreach (var entry in keywords.Where(x => materialFilter(x.ObjectType, x.Slot, x.MaterialName)).ToList())
+            foreach (var entry in keywords.Where(x => materialFilter(x.ObjectType, x.Slot, x.MaterialName) && IsCurrentOutfit(controller, x.ObjectType, x.CoordinateIndex)).ToList())
             {
                 if (TryFindMaterial(controller, entry.ObjectType, entry.Slot, entry.MaterialName, out var go, out var material))
                     controller.RemoveMaterialKeywordProperty(entry.Slot, entry.ObjectType, material, entry.Property, go);
@@ -289,7 +354,7 @@ namespace AdvancedLoader
             }
 
             var textures = traverse.Field(TextureListKey).GetValue<List<MaterialTextureProperty>>();
-            foreach (var entry in textures.Where(x => materialFilter(x.ObjectType, x.Slot, x.MaterialName)).ToList())
+            foreach (var entry in textures.Where(x => materialFilter(x.ObjectType, x.Slot, x.MaterialName) && IsCurrentOutfit(controller, x.ObjectType, x.CoordinateIndex)).ToList())
             {
                 if (TryFindMaterial(controller, entry.ObjectType, entry.Slot, entry.MaterialName, out var go, out var material))
                 {
@@ -302,7 +367,7 @@ namespace AdvancedLoader
 
             // Shaders last, after the values that belong to them are back to their originals
             var shaders = traverse.Field(ShaderListKey).GetValue<List<MaterialShader>>();
-            foreach (var entry in shaders.Where(x => materialFilter(x.ObjectType, x.Slot, x.MaterialName)).ToList())
+            foreach (var entry in shaders.Where(x => materialFilter(x.ObjectType, x.Slot, x.MaterialName) && IsCurrentOutfit(controller, x.ObjectType, x.CoordinateIndex)).ToList())
             {
                 if (TryFindMaterial(controller, entry.ObjectType, entry.Slot, entry.MaterialName, out var go, out var material))
                 {
@@ -313,7 +378,7 @@ namespace AdvancedLoader
             }
 
             var renderers = traverse.Field(RendererListKey).GetValue<List<RendererProperty>>();
-            foreach (var entry in renderers.Where(x => rendererFilter(x.ObjectType, x.Slot, x.RendererName)).ToList())
+            foreach (var entry in renderers.Where(x => rendererFilter(x.ObjectType, x.Slot, x.RendererName) && IsCurrentOutfit(controller, x.ObjectType, x.CoordinateIndex)).ToList())
             {
                 if (TryFindRenderer(controller, entry.ObjectType, entry.Slot, entry.RendererName, out var go, out var renderer))
                     controller.RemoveRendererProperty(entry.Slot, entry.ObjectType, renderer, entry.Property, go);
@@ -365,8 +430,13 @@ namespace AdvancedLoader
 
             foreach (var renderer in chaCtrl.GetComponentsInChildren<Renderer>(true))
             {
+#if HS2
                 if (renderer.GetComponentInParent<CmpClothes>() != null || renderer.GetComponentInParent<CmpHair>() != null || renderer.GetComponentInParent<CmpAccessory>() != null)
                     continue;
+#elif KKS
+                if (renderer.GetComponentInParent<ChaClothesComponent>() != null || renderer.GetComponentInParent<ChaCustomHairComponent>() != null || renderer.GetComponentInParent<ChaAccessoryComponent>() != null)
+                    continue;
+#endif
 
                 var rendererName = FormatName(renderer.name);
                 var group = head != null && renderer.transform.IsChildOf(head)

@@ -62,6 +62,14 @@ namespace AdvancedLoader
         public AccessoryPlacement Placement = AccessoryPlacement.SameSlots;
         public int Shift = 10;
 
+#if KKS
+        /// <summary>Which of the card's outfits are loaded with Clothes, and into which of the character's outfits.</summary>
+        public OutfitMode OutfitSelection = OutfitMode.All;
+        public readonly HashSet<int> SelectedOutfits = new HashSet<int>();
+        public OutfitPlacement OutfitPlacement = OutfitPlacement.SameSlots;
+        public int OutfitShift = 4;
+#endif
+
         /// <summary>
         /// "All from card" into the same slots replaces every accessory, which the game's own load already does.
         /// Any other placement keeps the current accessories and adds the card's.

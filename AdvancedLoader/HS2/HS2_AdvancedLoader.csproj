@@ -3,34 +3,15 @@
   <PropertyGroup>
     <TargetFramework>net46</TargetFramework>
     <AssemblyName>HS2_AdvancedLoader</AssemblyName>
-    <RootNamespace>AdvancedLoader</RootNamespace>
-    <LangVersion>latest</LangVersion>
-    <DebugType>embedded</DebugType>
-
-    <Version>1.0.0</Version>
-    <AssemblyTitle>Advanced Loader</AssemblyTitle>
-    <Product>Advanced Loader</Product>
-    <Description>Load chosen parts of character and clothes cards in Honey Select 2 maker</Description>
-    <Company>Aktymel</Company>
-    <Copyright>Copyright © 2026 Aktymel</Copyright>
-  </PropertyGroup>
-
-  <!-- The game folder is needed for references. Pass it with -p:GamePath=..., or put it in GamePath.user.props (not committed):
-       <Project><PropertyGroup><GamePath>D:\Games\HoneySelect2</GamePath></PropertyGroup></Project> -->
-  <Import Project="GamePath.user.props" Condition="Exists('GamePath.user.props')" />
-
-  <PropertyGroup>
+    <DefineConstants>$(DefineConstants);HS2</DefineConstants>
+    <GamePath Condition="'$(GamePath)' == ''">$(HS2GamePath)</GamePath>
     <ManagedPath>$(GamePath)\HoneySelect2_Data\Managed</ManagedPath>
     <PluginsPath>$(GamePath)\BepInEx\plugins</PluginsPath>
   </PropertyGroup>
 
   <Target Name="CheckGamePath" BeforeTargets="ResolveAssemblyReferences">
-    <Error Condition="'$(GamePath)' == '' Or !Exists('$(ManagedPath)')" Text="Set GamePath to the Honey Select 2 folder (dotnet build -p:GamePath=... or GamePath.user.props)." />
+    <Error Condition="'$(GamePath)' == '' Or !Exists('$(ManagedPath)')" Text="Set HS2GamePath to the Honey Select 2 folder (GamePath.user.props or -p:GamePath=...)." />
   </Target>
-
-  <ItemGroup>
-    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
-  </ItemGroup>
 
   <ItemGroup>
     <Reference Include="$(GamePath)\BepInEx\core\BepInEx.dll" Private="false" />

@@ -1,6 +1,9 @@
 using System;
 using System.Collections.Generic;
+#if HS2
 using AIChara;
+#elif KKS
+#endif
 
 namespace AdvancedLoader
 {
@@ -24,6 +27,20 @@ namespace AdvancedLoader
         /// <summary>Body bonemod (ABMX) of a character card, kept as object for the same reason.</summary>
         public object Bonemod;
 
+#if KKS
+        /// <summary>All outfits of a character card (empty for a clothes card).</summary>
+        public List<CardOutfit> CardOutfits = new List<CardOutfit>();
+
+        /// <summary>Show the accessories of one outfit of a character card in <see cref="AccessorySlots"/> and <see cref="SlotNames"/>.</summary>
+        public void ShowOutfit(int index)
+        {
+            if (index < 0 || index >= CardOutfits.Count) return;
+            AccessorySlots = CardOutfits[index].Accessories;
+            SlotNames.Clear();
+            SlotNames.AddRange(CardOutfits[index].SlotNames);
+        }
+#endif
+
         public static CardData Read(string path, LoadMode mode, byte sex)
         {
             var card = new CardData { Path = path, Mode = mode };
@@ -32,6 +49,19 @@ namespace AdvancedLoader
 
             void Inspect(ChaFileControl temp)
             {
+#if KKS
+                if (mode == LoadMode.Character)
+                {
+                    try
+                    {
+                        card.CardOutfits = Outfits.ReadCard(temp);
+                    }
+                    catch (Exception ex)
+                    {
+                        AdvancedLoaderPlugin.Logger.LogWarning($"Could not read outfits from {path}: {ex.Message}");
+                    }
+                }
+#endif
                 if (readBonemod)
                 {
                     try
@@ -49,7 +79,7 @@ namespace AdvancedLoader
                 {
                     card.Materials = mode == LoadMode.Character
                         ? MaterialEditorBridge.ReadFromCharacterFile(temp)
-                        : MaterialEditorBridge.ReadFromCoordinate(temp.coordinate);
+                        : MaterialEditorBridge.ReadFromCoordinate(AccessoryData.CardCoordinate(temp));
                 }
                 catch (Exception ex)
                 {

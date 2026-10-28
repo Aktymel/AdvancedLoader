@@ -10,6 +10,7 @@ A plugin that loads only specific parts of a card without overwriting the rest.
 - **Body categories** (Breast, Legs, Eyes, Nose, Makeup…), including the ABMX bonemod sliders.
 - **Clothes categories** (Top, Bottom, Inner top/bottom, Gloves, Pantyhose, Socks, Shoes), including their Material Editor data and clothes overlays.
 - **Accessories**: select which accessories to copy, then either overwrite the old ones or put them into free slots.
+- **Outfits** (Koikatsu Sunshine): load all or chosen outfits into the same, shifted or new outfit slots; the other outfits are kept.
 - **Material Editor groups** (Body, Head, Eyes, Hair, Clothes) with the *Clean copy* feature: changes of the group are reset before the card's changes are applied, so nothing from earlier edits is left behind.
 - The game's original load windows are not changed.
 
@@ -24,11 +25,14 @@ A plugin that loads only specific parts of a card without overwriting the rest.
 ## Requirements
 
 - [BepInEx](https://github.com/BepInEx/BepInEx) 5.4
-- [HS2API](https://github.com/IllusionMods/IllusionModdingAPI) 1.48.1 or newer
+- [HS2API / KKSAPI](https://github.com/IllusionMods/IllusionModdingAPI) 1.48 or newer
 
 ## Installation
 
-Copy `HS2_AdvancedLoader.dll` into `BepInEx\plugins`.
+Copy the file for your game into `BepInEx\plugins`:
+
+- Honey Select 2: `HS2_AdvancedLoader.dll`
+- Koikatsu Sunshine: `KKS_AdvancedLoader.dll`
 
 ## Usage
 
@@ -40,14 +44,18 @@ A keyboard shortcut for the window can be set in the plugin settings (F1).
 
 ## Compatibility
 
-- [MoreAccessories](https://bitbucket.org/Joan6694/hsplugins) 1.2.2+
-- [Material Editor](https://github.com/IllusionMods/KK_Plugins) 4.0.3.1+
-- [ABMX](https://github.com/ManlyMarco/ABMX) 5.2.2+
-- [Overlay Mods](https://github.com/ManlyMarco/Illusion-Overlay-Mods) 6.3+
-- [Maker/Studio Browser Folders](https://github.com/ManlyMarco/Illusion_BrowserFolders)
+| Plugin | HS2 | KKS |
+|---|---|---|
+| MoreAccessories | [1.2.2+](https://bitbucket.org/Joan6694/hsplugins) | [2.0.21+](https://github.com/jalil49/MoreAccessories) |
+| [Material Editor](https://github.com/IllusionMods/KK_Plugins) | 4.0.3.1+ | 4.0.3+ |
+| [ABMX](https://github.com/ManlyMarco/ABMX) | 5.2.2+ | 5.4+ |
+| [Overlay Mods](https://github.com/ManlyMarco/Illusion-Overlay-Mods) | 6.3+ | 6.2+ |
+| [More Outfit Slots](https://github.com/IllusionMods/KK_Plugins) | — | 1.1.2+ |
+| [Maker/Studio Browser Folders](https://github.com/ManlyMarco/Illusion_BrowserFolders) | ✓ | ✓ |
 
 ## Changelog
 
+- 1.1.0 — Koikatsu Sunshine version, outfit selection for Koikatsu Sunshine.
 - 1.0.0 — first public release.
 
 ## License

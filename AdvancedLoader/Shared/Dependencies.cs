@@ -69,10 +69,19 @@ namespace AdvancedLoader
 
     internal static class Dependencies
     {
+        // Minimum versions are the ones each game's build was made and tested with
+#if HS2
         public static readonly Dependency MoreAccessories = new Dependency("MoreAccessories", "com.joan6694.illusionplugins.moreaccessories", "1.2.2");
         public static readonly Dependency MaterialEditor = new Dependency("Material Editor", "com.deathweasel.bepinex.materialeditor", "4.0.3.1");
         public static readonly Dependency Abmx = new Dependency("ABMX (bonemod)", "KKABMX.Core", "5.2.2");
         public static readonly Dependency ClothesOverlays = new Dependency("Clothes Overlay Mod", "KCOX", "6.3");
+#elif KKS
+        public static readonly Dependency MoreAccessories = new Dependency("MoreAccessories", "com.joan6694.illusionplugins.moreaccessories", "2.0.21");
+        public static readonly Dependency MaterialEditor = new Dependency("Material Editor", "com.deathweasel.bepinex.materialeditor", "4.0.3");
+        public static readonly Dependency Abmx = new Dependency("ABMX (bonemod)", "KKABMX.Core", "5.4");
+        public static readonly Dependency ClothesOverlays = new Dependency("Clothes Overlay Mod", "KCOX", "6.2");
+        public static readonly Dependency MoreOutfits = new Dependency("More Outfit Slots", "com.deathweasel.bepinex.moreoutfits", "1.1.2");
+#endif
 
         public static void LogProblems()
         {
