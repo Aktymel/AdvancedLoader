@@ -25,6 +25,12 @@ Also built for AI-Shoujo, but not tested there yet.
 
 ![Outfits](AdvancedLoader/screenshots/6_kks_outfits.png)
 
+### Other plugins
+
+- Every plugin with data on the selected card is listed; tick the ones to load from the card.
+
+![Other plugins](AdvancedLoader/screenshots/8_plugins.png)
+
 ## Screenshots
 
 | Character | Accessories, Material Editor, other plugins |
