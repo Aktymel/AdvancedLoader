@@ -4,7 +4,9 @@ A plugin that loads only specific parts of a card without overwriting the rest.
 
 Supported games: Honey Select 2, Koikatsu Sunshine.
 
-![Advanced load in the character maker](AdvancedLoader/screenshots/5_ex.png)
+| Honey Select 2 | Koikatsu Sunshine |
+|---|---|
+| ![Advanced load in Honey Select 2](AdvancedLoader/screenshots/5_hs2_ex.png) | ![Advanced load in Koikatsu Sunshine](AdvancedLoader/screenshots/7_kks_ex.png) |
 
 ## Features
 
@@ -12,9 +14,14 @@ Supported games: Honey Select 2, Koikatsu Sunshine.
 - **Body categories** (Breast, Legs, Eyes, Nose, Makeup…), including the ABMX bonemod sliders.
 - **Clothes categories** (Top, Bottom, Inner top/bottom, Gloves, Pantyhose, Socks, Shoes), including their Material Editor data and clothes overlays.
 - **Accessories**: select which accessories to copy, then either overwrite the old ones or put them into free slots.
-- **Outfits** (Koikatsu Sunshine): load all or chosen outfits into the same, shifted or new outfit slots; the other outfits are kept.
 - **Material Editor groups** (Body, Head, Eyes, Hair, Clothes) with the *Clean copy* feature: changes of the group are reset before the card's changes are applied, so nothing from earlier edits is left behind.
 - The game's original load windows are not changed.
+
+### Koikatsu Sunshine: outfits
+
+- Load all or chosen outfits into the same, shifted or new outfit slots; the other outfits are kept.
+
+![Outfits](AdvancedLoader/screenshots/6_kks_outfits.png)
 
 ## Screenshots
 
