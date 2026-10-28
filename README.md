@@ -3,6 +3,7 @@
 A plugin that loads only specific parts of a card without overwriting the rest.
 
 Supported games: Honey Select 2, Koikatsu Sunshine.
+Also built for AI-Shoujo and Koikatsu, but not tested there yet.
 
 | Honey Select 2 | Koikatsu Sunshine |
 |---|---|
@@ -15,9 +16,10 @@ Supported games: Honey Select 2, Koikatsu Sunshine.
 - **Clothes categories** (Top, Bottom, Inner top/bottom, Gloves, Pantyhose, Socks, Shoes), including their Material Editor data and clothes overlays.
 - **Accessories**: select which accessories to copy, then either overwrite the old ones or put them into free slots.
 - **Material Editor groups** (Body, Head, Eyes, Hair, Clothes) with the *Clean copy* feature: changes of the group are reset before the card's changes are applied, so nothing from earlier edits is left behind.
+- **Other plugins**: every plugin with data on the card is listed; only the ticked ones are loaded from the card, the others keep the character's current data.
 - The game's original load windows are not changed.
 
-### Koikatsu Sunshine: outfits
+### Koikatsu Sunshine / Koikatsu: outfits
 
 - Load all or chosen outfits into the same, shifted or new outfit slots; the other outfits are kept.
 
@@ -34,7 +36,7 @@ Supported games: Honey Select 2, Koikatsu Sunshine.
 ## Requirements
 
 - [BepInEx](https://github.com/BepInEx/BepInEx) 5.4
-- [HS2API / KKSAPI](https://github.com/IllusionMods/IllusionModdingAPI) 1.48 or newer
+- [HS2API / KKSAPI / AIAPI](https://github.com/IllusionMods/IllusionModdingAPI) 1.48 or newer, KKAPI 1.42.2 or newer
 
 ## Installation
 
@@ -42,6 +44,8 @@ Copy the file for your game into `BepInEx\plugins`:
 
 - Honey Select 2: `HS2_AdvancedLoader.dll`
 - Koikatsu Sunshine: `KKS_AdvancedLoader.dll`
+- AI-Shoujo (not tested): `AI_AdvancedLoader.dll`
+- Koikatsu (not tested): `KK_AdvancedLoader.dll`
 
 ## Usage
 
@@ -53,7 +57,7 @@ A keyboard shortcut for the window can be set in the plugin settings (F1).
 
 ## Compatibility
 
-| Plugin | HS2 | KKS |
+| Plugin | HS2 / AI | KKS / KK |
 |---|---|---|
 | MoreAccessories | [1.2.2+](https://bitbucket.org/Joan6694/hsplugins) | [2.0.21+](https://github.com/jalil49/MoreAccessories) |
 | [Material Editor](https://github.com/IllusionMods/KK_Plugins) | 4.0.3.1+ | 4.0.3+ |
@@ -64,6 +68,7 @@ A keyboard shortcut for the window can be set in the plugin settings (F1).
 
 ## Changelog
 
+- 1.2.0 — *Other plugins* lists every plugin with data on the card and keeps the unticked ones; unticked Material Editor groups stay as they were on Face/Body loads; untested AI-Shoujo and Koikatsu versions.
 - 1.1.0 — Koikatsu Sunshine version, outfit selection for Koikatsu Sunshine.
 - 1.0.0 — first public release.
 

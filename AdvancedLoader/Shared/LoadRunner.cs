@@ -2,9 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using HarmonyLib;
-using KKAPI.Maker.UI;
 using UnityEngine.UI;
-#if HS2
+#if HS2 || AI
 using AIChara;
 #endif
 
@@ -22,44 +21,12 @@ namespace AdvancedLoader
 
         public static bool Busy { get; private set; }
 
-        /// <summary>All load toggles other plugins added to the game's "Load character" window.</summary>
-        public static List<MakerLoadToggle> GetPluginToggles()
-        {
-            return Traverse.Create(typeof(MakerLoadToggle)).Field("Toggles").GetValue<List<MakerLoadToggle>>() ?? new List<MakerLoadToggle>();
-        }
-
-        /// <summary>
-        /// Put this window's choices on other plugins' load toggles for the duration of the load.
-        /// Their values are what the original window shows, and e.g. "Skin/eye overlays" is on by default there,
-        /// which would load the card's eye overlays even when only an accessory is loaded.
-        /// </summary>
-        private static Dictionary<MakerLoadToggle, bool> ApplyPluginToggles(LoadOptions options)
-        {
-            var previous = new Dictionary<MakerLoadToggle, bool>();
-            foreach (var toggle in GetPluginToggles())
-            {
-                previous[toggle] = toggle.Value;
-                options.PluginToggles.TryGetValue(toggle.Text, out var value);
-                // Bonemod is copied by category after the load instead (see ApplyBonemod)
-                if (AbmxPresence.Available && AbmxPresence.LoadToggleTexts.Contains(toggle.Text)) value = false;
-                if (toggle.Value != value) toggle.Value = value;
-            }
-            return previous;
-        }
-
-        private static void RestorePluginToggles(Dictionary<MakerLoadToggle, bool> previous)
-        {
-            if (previous == null) return;
-            foreach (var pair in previous)
-                if (pair.Key.Value != pair.Value) pair.Key.Value = pair.Value;
-        }
-
         private static void SetToggle(Toggle[] toggles, int index, bool value)
         {
             if (toggles != null && index < toggles.Length && toggles[index] != null) toggles[index].isOn = value;
         }
 
-        private static object TakeMaterialSnapshot(ChaControl chaCtrl, LoadOptions options)
+        private static object TakeMaterialSnapshot(ChaControl chaCtrl, CardData card, LoadOptions options)
         {
             // Needed for accessories, and for Face/Body because Material Editor then replaces all body/head/eye materials
             if (!MaterialEditorPresence.Available) return null;
@@ -67,7 +34,7 @@ namespace AdvancedLoader
             if (!(options.MaterialFollowAccessories || options.Face || options.Body || keepsClothes)) return null;
             try
             {
-                return MaterialEditorBridge.Snapshot(chaCtrl);
+                return MaterialEditorBridge.Snapshot(chaCtrl, card.Materials);
             }
             catch (Exception ex)
             {
@@ -104,22 +71,20 @@ namespace AdvancedLoader
 
         /// <summary>
         /// Loading Face or Body makes Material Editor take every body, head and eye material change from the card.
-        /// The groups not ticked under "Material Editor" get the character's previous changes back.
-        /// Hair and clothes are not restored: their materials belong to the hair or clothes that came with the load.
+        /// For the groups not ticked under "Material Editor" it is given the character's current changes instead.
+        /// Hair and clothes are not kept: their materials belong to the hair or clothes that came with the load.
+        /// Call before the load; <see cref="StopKeepingCharacterMaterials"/> afterwards.
         /// </summary>
         private static void KeepUntickedCharacterMaterials(ChaControl chaCtrl, LoadOptions options, object snapshot)
         {
-            if (snapshot == null || !(options.Face || options.Body)) return;
+            if (!MaterialEditorPresence.Available || snapshot == null || !(options.Face || options.Body)) return;
             var keep = (MaterialGroup.Body | MaterialGroup.Head | MaterialGroup.Eyes) & ~options.MaterialGroups;
-            if (keep == MaterialGroup.None) return;
-            try
-            {
-                MaterialEditorBridge.ApplyGroups(chaCtrl, snapshot, keep, true);
-            }
-            catch (Exception ex)
-            {
-                AdvancedLoaderPlugin.Logger.LogError($"Failed to keep current Material Editor data: {ex}");
-            }
+            if (keep != MaterialGroup.None) MaterialEditorBridge.KeepCharacterGroupsOnLoad(chaCtrl, snapshot, keep);
+        }
+
+        private static void StopKeepingCharacterMaterials()
+        {
+            if (MaterialEditorPresence.Available) MaterialEditorBridge.ClearKeep();
         }
 
         /// <summary>

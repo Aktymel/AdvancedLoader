@@ -1,44 +1,19 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net46</TargetFramework>
     <AssemblyName>KKS_AdvancedLoader</AssemblyName>
     <DefineConstants>$(DefineConstants);KKS</DefineConstants>
     <GamePath Condition="'$(GamePath)' == ''">$(KKSGamePath)</GamePath>
-    <ManagedPath>$(GamePath)\KoikatsuSunshine_Data\Managed</ManagedPath>
-    <PluginsPath>$(GamePath)\BepInEx\plugins</PluginsPath>
   </PropertyGroup>
 
-  <Target Name="CheckGamePath" BeforeTargets="ResolveAssemblyReferences">
-    <Error Condition="'$(GamePath)' == '' Or !Exists('$(ManagedPath)')" Text="Set KKSGamePath to the Koikatsu Sunshine folder (GamePath.user.props or -p:GamePath=...)." />
-  </Target>
-
   <ItemGroup>
-    <Reference Include="$(GamePath)\BepInEx\core\BepInEx.dll" Private="false" />
-    <Reference Include="$(GamePath)\BepInEx\core\0Harmony.dll" Private="false" />
-    <!-- Plugins can sit in any subfolder of BepInEx\plugins depending on the repack -->
-    <Reference Include="$(PluginsPath)\**\KKSAPI.dll" Private="false" />
-    <Reference Include="$(PluginsPath)\**\KKS_ExtensibleSaveFormat.dll" Private="false" />
+    <PackageReference Include="IllusionLibs.KoikatsuSunshine.AllPackages" Version="2021.9.17" />
+    <PackageReference Include="IllusionModdingAPI.KKSAPI" Version="1.48.0" />
+    <PackageReference Include="ExtensibleSaveFormat.KoikatsuSunshine" Version="21.1.3" />
     <!-- Soft dependencies: only the *Bridge classes touch these types, and only when those plugins are loaded -->
-    <Reference Include="$(PluginsPath)\**\KKS_OverlayMods.dll" Private="false" />
-    <Reference Include="$(PluginsPath)\**\KKSABMX.dll" Private="false" />
-    <Reference Include="$(PluginsPath)\**\KKS_MaterialEditor.dll" Private="false" />
-    <Reference Include="$(ManagedPath)\Assembly-CSharp.dll" Private="false" />
-    <Reference Include="$(ManagedPath)\Assembly-CSharp-firstpass.dll" Private="false" />
-    <Reference Include="$(ManagedPath)\UnityEngine.dll" Private="false" />
-    <Reference Include="$(ManagedPath)\UnityEngine.CoreModule.dll" Private="false" />
-    <Reference Include="$(ManagedPath)\UnityEngine.IMGUIModule.dll" Private="false" />
-    <Reference Include="$(ManagedPath)\UnityEngine.UI.dll" Private="false" />
-    <Reference Include="$(ManagedPath)\UnityEngine.UIModule.dll" Private="false" />
-    <Reference Include="$(ManagedPath)\UnityEngine.TextRenderingModule.dll" Private="false" />
-    <Reference Include="$(ManagedPath)\UnityEngine.ImageConversionModule.dll" Private="false" />
-    <Reference Include="$(ManagedPath)\UniRx.dll" Private="false" />
-    <Reference Include="$(ManagedPath)\UniTask.dll" Private="false" />
+    <PackageReference Include="OverlayMods.KoikatsuSunshine" Version="6.2.0" />
+    <PackageReference Include="ABMX.KKSABMX" Version="5.4.0" />
+    <PackageReference Include="MaterialEditor.KoikatsuSunshine" Version="4.0.3" />
   </ItemGroup>
-
-  <!-- Copies the built plugin into the game; turn off with -p:CopyToGame=false -->
-  <Target Name="CopyToGame" AfterTargets="Build" Condition="'$(CopyToGame)' != 'false'">
-    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(PluginsPath)" />
-  </Target>
 
 </Project>

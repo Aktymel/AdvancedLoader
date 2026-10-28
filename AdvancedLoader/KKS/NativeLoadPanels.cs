@@ -64,10 +64,26 @@ namespace AdvancedLoader
 
         private void SetSelection(CustomFileListCtrl list)
         {
+#if KK
+            // Koikatsu Party's list differs from Koikatu's, so it is read by name and gives nothing where it does not fit
+            var item = list == null ? null : Traverse.Create(list).Method("GetSelectTopItem").GetValue();
+            var info = item == null ? null : ReadMember(item, "info");
+            SelectedPath = info == null ? null : ReadMember(info, "FullPath") as string;
+            SelectedName = info == null ? null : ReadMember(info, "name") as string;
+#else
             var info = list?.GetSelectTopItem()?.info;
             SelectedPath = info?.FullPath;
             SelectedName = info?.name;
+#endif
         }
+
+#if KK
+        private static object ReadMember(object obj, string name)
+        {
+            var traverse = Traverse.Create(obj);
+            return traverse.Field(name).FieldExists() ? traverse.Field(name).GetValue() : traverse.Property(name).GetValue();
+        }
+#endif
 
         private static bool IsLoadShown(Component page, CustomFileWindow.FileWindowType loadType, out CustomFileListCtrl list)
         {

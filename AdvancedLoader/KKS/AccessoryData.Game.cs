@@ -17,7 +17,12 @@ namespace AdvancedLoader
 
         public static string GetName(ChaFileAccessory.PartsInfo part)
         {
-            var info = Character.chaListCtrl.GetListInfo((ChaListDefine.CategoryNo)part.type, part.id);
+#if KK
+            var lists = Singleton<Character>.Instance.chaListCtrl;
+#else
+            var lists = Character.chaListCtrl;
+#endif
+            var info = lists.GetListInfo((ChaListDefine.CategoryNo)part.type, part.id);
             return info != null ? info.Name : $"Unknown accessory ({part.type}/{part.id})";
         }
 
@@ -74,7 +79,9 @@ namespace AdvancedLoader
         /// </summary>
         public static List<ChaFileAccessory.PartsInfo> ReadCard(string fullPath, byte sex, Action<ChaFileControl> inspect = null)
         {
+#if KKS
             var prevIsMod = Character.isMod;
+#endif
             var temp = new ChaFileControl();
             try
             {
@@ -88,8 +95,10 @@ namespace AdvancedLoader
             }
             finally
             {
+#if KKS
                 // Loading a card overwrites the "modded card" flag of the character being edited
                 Character.isMod = prevIsMod;
+#endif
             }
         }
     }

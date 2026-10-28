@@ -1,44 +1,19 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net46</TargetFramework>
     <AssemblyName>HS2_AdvancedLoader</AssemblyName>
     <DefineConstants>$(DefineConstants);HS2</DefineConstants>
     <GamePath Condition="'$(GamePath)' == ''">$(HS2GamePath)</GamePath>
-    <ManagedPath>$(GamePath)\HoneySelect2_Data\Managed</ManagedPath>
-    <PluginsPath>$(GamePath)\BepInEx\plugins</PluginsPath>
   </PropertyGroup>
 
-  <Target Name="CheckGamePath" BeforeTargets="ResolveAssemblyReferences">
-    <Error Condition="'$(GamePath)' == '' Or !Exists('$(ManagedPath)')" Text="Set HS2GamePath to the Honey Select 2 folder (GamePath.user.props or -p:GamePath=...)." />
-  </Target>
-
   <ItemGroup>
-    <Reference Include="$(GamePath)\BepInEx\core\BepInEx.dll" Private="false" />
-    <Reference Include="$(GamePath)\BepInEx\core\0Harmony.dll" Private="false" />
-    <!-- Plugins can sit in any subfolder of BepInEx\plugins depending on the repack -->
-    <Reference Include="$(PluginsPath)\**\HS2API.dll" Private="false" />
-    <Reference Include="$(PluginsPath)\**\HS2_ExtensibleSaveFormat.dll" Private="false" />
+    <PackageReference Include="IllusionLibs.HoneySelect2.AllPackages" Version="2020.5.29.5" />
+    <PackageReference Include="IllusionModdingAPI.HS2API" Version="1.48.0" />
+    <PackageReference Include="ExtensibleSaveFormat.HoneySelect2" Version="21.1.3" />
     <!-- Soft dependencies: only the *Bridge classes touch these types, and only when those plugins are loaded -->
-    <Reference Include="$(PluginsPath)\**\HS2_OverlayMods.dll" Private="false" />
-    <Reference Include="$(PluginsPath)\**\HS2ABMX.dll" Private="false" />
-    <Reference Include="$(PluginsPath)\**\HS2_MaterialEditor.dll" Private="false" />
-    <Reference Include="$(ManagedPath)\Assembly-CSharp.dll" Private="false" />
-    <Reference Include="$(ManagedPath)\Assembly-CSharp-firstpass.dll" Private="false" />
-    <Reference Include="$(ManagedPath)\IL.dll" Private="false" />
-    <Reference Include="$(ManagedPath)\UnityEngine.dll" Private="false" />
-    <Reference Include="$(ManagedPath)\UnityEngine.CoreModule.dll" Private="false" />
-    <Reference Include="$(ManagedPath)\UnityEngine.IMGUIModule.dll" Private="false" />
-    <Reference Include="$(ManagedPath)\UnityEngine.UI.dll" Private="false" />
-    <Reference Include="$(ManagedPath)\UnityEngine.UIModule.dll" Private="false" />
-    <Reference Include="$(ManagedPath)\UnityEngine.TextRenderingModule.dll" Private="false" />
-    <Reference Include="$(ManagedPath)\UnityEngine.ImageConversionModule.dll" Private="false" />
-    <Reference Include="$(ManagedPath)\UniRx.dll" Private="false" />
+    <PackageReference Include="OverlayMods.HoneySelect2" Version="6.3.0" />
+    <PackageReference Include="ABMX.HS2ABMX" Version="5.2.2" />
+    <PackageReference Include="MaterialEditor.HoneySelect2" Version="4.0.3" />
   </ItemGroup>
-
-  <!-- Copies the built plugin into the game; turn off with -p:CopyToGame=false -->
-  <Target Name="CopyToGame" AfterTargets="Build" Condition="'$(CopyToGame)' != 'false'">
-    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(PluginsPath)" />
-  </Target>
 
 </Project>

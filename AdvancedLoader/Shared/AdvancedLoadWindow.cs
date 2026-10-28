@@ -3,9 +3,9 @@ using System.Linq;
 using KKAPI.Maker;
 using KKAPI.Utilities;
 using UnityEngine;
-#if HS2
+#if HS2 || AI
 using CharaCustom;
-#elif KKS
+#elif KKS || KK
 using ChaCustom;
 #endif
 
@@ -22,7 +22,7 @@ namespace AdvancedLoader
         private const float MaxHeight = 640;
         private static readonly string[] AccessoryModeNames = { "Keep current", "All from card", "Selected" };
         private static readonly string[] PlacementNames = { "Same slots", "Shift by", "Free slots" };
-#if KKS
+#if KKS || KK
         private static readonly string[] OutfitModeNames = { "All from card", "Selected" };
         private static readonly string[] OutfitPlacementNames = { "Same outfits", "Shift by", "New outfits" };
 
@@ -93,7 +93,7 @@ namespace AdvancedLoader
             else if (_card == null || _card.Path != path)
             {
                 _card = CardData.Read(path, _mode, (byte)MakerAPI.GetMakerSex());
-#if KKS
+#if KKS || KK
                 _shownOutfit = -1;
                 Options.SelectedOutfits.Clear();
 #endif
@@ -108,7 +108,7 @@ namespace AdvancedLoader
             var options = Options;
             var chaCtrl = MakerAPI.GetCharacterControl();
             var occupancyOf = chaCtrl == null ? null : chaCtrl.nowCoordinate;
-#if KKS
+#if KKS || KK
             if (chaCtrl != null && _mode == LoadMode.Character && _card != null && _card.CardOutfits.Count > 0)
             {
                 _outfitTargets = Outfits.MapTargets(options, _card.CardOutfits.Count, chaCtrl.chaFile.coordinate.Length);
@@ -222,7 +222,7 @@ namespace AdvancedLoader
             DrawClothes(options);
             EndSection();
 
-#if KKS
+#if KKS || KK
             if (_mode == LoadMode.Character && (options.Clothes || options.Accessories != AccessoryMode.Keep)) DrawOutfits(options);
 #endif
 
@@ -258,13 +258,16 @@ namespace AdvancedLoader
                 EndSection();
             }
 
-            if (_mode == LoadMode.Character) DrawPluginToggles(options);
+            if (_mode == LoadMode.Character && _card != null) DrawOtherPlugins(options);
         }
 
         private void DrawFace(LoadOptions options)
         {
             GUILayout.BeginHorizontal();
-            options.Face = GUILayout.Toggle(options.Face, " Face" + PartCount(options.FaceParts == FacePart.All, Describe(options.FaceParts)));
+            var face = GUILayout.Toggle(options.Face, " Face" + PartCount(options.FaceParts == FacePart.All, Describe(options.FaceParts)));
+            // Unticking a category also folds its parts away
+            if (options.Face && !face) _faceExpanded = false;
+            options.Face = face;
             GUILayout.FlexibleSpace();
             if (GUILayout.Button(_faceExpanded ? "Hide parts" : "Parts...", GUILayout.Width(80))) _faceExpanded = !_faceExpanded;
             GUILayout.EndHorizontal();
@@ -288,7 +291,10 @@ namespace AdvancedLoader
         private void DrawBody(LoadOptions options)
         {
             GUILayout.BeginHorizontal();
-            options.Body = GUILayout.Toggle(options.Body, " Body" + PartCount(options.BodyParts == BodyPart.All, Describe(options.BodyParts)));
+            var body = GUILayout.Toggle(options.Body, " Body" + PartCount(options.BodyParts == BodyPart.All, Describe(options.BodyParts)));
+            // Unticking a category also folds its parts away
+            if (options.Body && !body) _bodyExpanded = false;
+            options.Body = body;
             GUILayout.FlexibleSpace();
             if (GUILayout.Button(_bodyExpanded ? "Hide parts" : "Parts...", GUILayout.Width(80))) _bodyExpanded = !_bodyExpanded;
             GUILayout.EndHorizontal();
@@ -312,7 +318,10 @@ namespace AdvancedLoader
         private void DrawClothes(LoadOptions options)
         {
             GUILayout.BeginHorizontal();
-            options.Clothes = GUILayout.Toggle(options.Clothes, " Clothes" + PartCount(options.ClothesParts == ClothesPart.All, ClothesParts.Describe(options.ClothesParts)));
+            var clothes = GUILayout.Toggle(options.Clothes, " Clothes" + PartCount(options.ClothesParts == ClothesPart.All, ClothesParts.Describe(options.ClothesParts)));
+            // Unticking a category also folds its parts away
+            if (options.Clothes && !clothes) _clothesExpanded = false;
+            options.Clothes = clothes;
             GUILayout.FlexibleSpace();
             if (GUILayout.Button(_clothesExpanded ? "Hide parts" : "Parts...", GUILayout.Width(80))) _clothesExpanded = !_clothesExpanded;
             GUILayout.EndHorizontal();
@@ -435,7 +444,7 @@ namespace AdvancedLoader
             return _targets.TryGetValue(sourceSlot, out var target) ? $"  → {target + 1:00}" : "  → no slot";
         }
 
-#if KKS
+#if KKS || KK
         /// <summary>
         /// Which card outfits are loaded and into which of the character's outfits.
         /// </summary>
@@ -525,22 +534,18 @@ namespace AdvancedLoader
         }
 
         /// <summary>
-        /// Load toggles other plugins added to the game's "Load character" window (e.g. overlays). This window keeps its
-        /// own values (off until ticked here) and only puts them on those toggles while it loads.
+        /// Other plugins with data on the card. Ticked ones load it, the rest keep the character's current data.
         /// </summary>
-        private void DrawPluginToggles(LoadOptions options)
+        private void DrawOtherPlugins(LoadOptions options)
         {
-            // Bonemod follows the Face and Body categories, so ABMX's own toggles are not shown
-            var toggles = LoadRunner.GetPluginToggles()
-                .Where(x => !(AbmxPresence.Available && AbmxPresence.LoadToggleTexts.Contains(x.Text)))
-                .ToList();
-            if (toggles.Count == 0) return;
+            var entries = OtherPlugins.Entries.Where(x => _card.PluginDataIds.Contains(x.Id)).ToList();
+            if (entries.Count == 0) return;
 
             BeginSection("Other plugins");
-            foreach (var toggle in toggles)
+            foreach (var entry in entries)
             {
-                options.PluginToggles.TryGetValue(toggle.Text, out var isOn);
-                options.PluginToggles[toggle.Text] = GUILayout.Toggle(isOn, " " + toggle.Text);
+                options.OtherPlugins.TryGetValue(entry.Id, out var isOn);
+                options.OtherPlugins[entry.Id] = GUILayout.Toggle(isOn, " " + entry.Name);
             }
             EndSection();
         }
@@ -561,7 +566,7 @@ namespace AdvancedLoader
             }
             if (options.Clothes && options.ClothesParts != ClothesPart.None)
                 parts.Add(options.ClothesParts == ClothesPart.All ? "Clothes" : $"Clothes ({ClothesParts.Describe(options.ClothesParts)})");
-#if KKS
+#if KKS || KK
             if (_mode == LoadMode.Character && (options.Clothes || options.Accessories != AccessoryMode.Keep))
                 parts.Add(_outfitTargets.Count == 0 ? "no outfits" : $"outfits {string.Join(", ", _outfitTargets.Keys.OrderBy(x => x).Select(x => (x + 1).ToString()).ToArray())}");
 #endif
@@ -571,7 +576,7 @@ namespace AdvancedLoader
             var groups = _mode == LoadMode.Character ? options.MaterialGroups : options.MaterialGroups & MaterialGroup.Clothes;
             if (MaterialEditorPresence.Available && groups != MaterialGroup.None) parts.Add($"materials ({groups})");
             if (_mode == LoadMode.Character)
-                parts.AddRange(options.PluginToggles.Where(x => x.Value && !(AbmxPresence.Available && AbmxPresence.LoadToggleTexts.Contains(x.Key))).Select(x => x.Key));
+                parts.AddRange(OtherPlugins.Entries.Where(x => OtherPlugins.Loads(options, _card, x)).Select(x => x.Name));
             return parts.Count == 0 ? "Nothing selected to load." : "Load: " + string.Join(", ", parts.ToArray());
         }
 
@@ -582,7 +587,7 @@ namespace AdvancedLoader
             // Accessories count only when at least one of them has a slot to go to
             var accessories = o.ReplacesAllAccessories || (o.Accessories != AccessoryMode.Keep && _targets.Count > 0);
             var anything = o.Clothes || accessories || (MaterialEditorPresence.Available && o.MaterialGroups != MaterialGroup.None);
-            if (_mode == LoadMode.Character) anything |= o.Face || o.Body || o.Hair || o.Parameters || o.PluginToggles.Values.Any(x => x);
+            if (_mode == LoadMode.Character) anything |= o.Face || o.Body || o.Hair || o.Parameters || OtherPlugins.AnyLoaded(o, _card);
             return anything;
         }
 

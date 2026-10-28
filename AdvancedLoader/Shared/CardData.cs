@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
-#if HS2
+using System.Linq;
+using ExtensibleSaveFormat;
+#if HS2 || AI
 using AIChara;
-#elif KKS
+#elif KKS || KK
 #endif
 
 namespace AdvancedLoader
@@ -27,7 +29,10 @@ namespace AdvancedLoader
         /// <summary>Body bonemod (ABMX) of a character card, kept as object for the same reason.</summary>
         public object Bonemod;
 
-#if KKS
+        /// <summary>IDs of the plugin data saved on a character card (see <see cref="OtherPlugins"/>).</summary>
+        public readonly HashSet<string> PluginDataIds = new HashSet<string>();
+
+#if KKS || KK
         /// <summary>All outfits of a character card (empty for a clothes card).</summary>
         public List<CardOutfit> CardOutfits = new List<CardOutfit>();
 
@@ -49,7 +54,8 @@ namespace AdvancedLoader
 
             void Inspect(ChaFileControl temp)
             {
-#if KKS
+                if (mode == LoadMode.Character) ReadPluginDataIds(card, temp);
+#if KKS || KK
                 if (mode == LoadMode.Character)
                 {
                     try
@@ -107,6 +113,25 @@ namespace AdvancedLoader
                 }
             }
             return card;
+        }
+
+        private static void ReadPluginDataIds(CardData card, ChaFileControl temp)
+        {
+            try
+            {
+                card.PluginDataIds.UnionWith(ExtendedSave.GetAllExtendedData(temp).Where(x => x.Value != null).Select(x => x.Key));
+#if KKS || KK
+                // Koikatsu Sunshine keeps clothes related plugin data in each outfit
+                foreach (var coordinate in temp.coordinate)
+                    card.PluginDataIds.UnionWith(ExtendedSave.GetAllExtendedData(coordinate).Where(x => x.Value != null).Select(x => x.Key));
+#else
+                card.PluginDataIds.UnionWith(ExtendedSave.GetAllExtendedData(temp.coordinate).Where(x => x.Value != null).Select(x => x.Key));
+#endif
+            }
+            catch (Exception ex)
+            {
+                AdvancedLoaderPlugin.Logger.LogWarning($"Could not read plugin data from {card.Path}: {ex.Message}");
+            }
         }
     }
 }

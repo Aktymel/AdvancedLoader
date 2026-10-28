@@ -1,5 +1,6 @@
 using System.Collections.Generic;
-#if HS2
+using ExtensibleSaveFormat;
+#if HS2 || AI
 using AIChara;
 #endif
 
@@ -37,5 +38,7 @@ namespace AdvancedLoader
         public BodyPart BodyParts = BodyPart.All;
         public FacePart FaceParts = FacePart.All;
         public ClothesPart ClothesParts = ClothesPart.All;
+        /// <summary>Card data of other plugins that are not loaded, put back on <see cref="Target"/> after the load.</summary>
+        public Dictionary<string, PluginData> KeptPluginData;
     }
 }

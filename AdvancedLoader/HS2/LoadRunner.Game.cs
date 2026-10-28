@@ -6,7 +6,6 @@ using AIChara;
 using CharaCustom;
 using HarmonyLib;
 using KKAPI.Maker;
-using KKAPI.Maker.UI;
 using Manager;
 using UnityEngine.UI;
 
@@ -23,11 +22,11 @@ namespace AdvancedLoader
             Busy = true;
             Toggle[] toggles = null;
             bool[] previousToggles = null;
-            Dictionary<MakerLoadToggle, bool> previousPluginToggles = null;
+            OtherPlugins.State otherPlugins = null;
             try
             {
                 var chaCtrl = MakerAPI.GetCharacterControl();
-                var materialSnapshot = TakeMaterialSnapshot(chaCtrl, options);
+                var materialSnapshot = TakeMaterialSnapshot(chaCtrl, card, options);
                 var overlaySnapshot = TakeOverlaySnapshot(chaCtrl, options);
                 var bonemodSnapshot = TakeBonemodSnapshot(chaCtrl, options);
 
@@ -35,7 +34,7 @@ namespace AdvancedLoader
                 var accessoryMode = options.Accessories;
                 var needsHook = !(options.Clothes && options.ReplacesAllAccessories) && !(!options.Clothes && accessoryMode == AccessoryMode.Keep);
                 // Other plugins' data (e.g. overlays) comes with the game's load even when no game part is ticked
-                var anyNative = options.Face || options.Body || options.Hair || options.Parameters || options.Clothes || options.PluginToggles.Values.Any(x => x);
+                var anyNative = options.Face || options.Body || options.Hair || options.Parameters || options.Clothes || OtherPlugins.AnyLoaded(options, card);
                 AccessoryLoadContext context = null;
 
                 if (anyNative || needsHook)
@@ -56,7 +55,7 @@ namespace AdvancedLoader
                     SetToggle(toggles, 2, options.Hair);
                     SetToggle(toggles, 3, options.Clothes);
                     SetToggle(toggles, 4, options.Parameters);
-                    previousPluginToggles = ApplyPluginToggles(options);
+                    otherPlugins = OtherPlugins.Apply(options, card);
 
                     var flags = (options.Face ? 1 : 0) | (options.Body ? 2 : 0) | (options.Hair ? 4 : 0) | (options.Clothes ? 8 : 0) | (options.Parameters ? 0x10 : 0);
                     if (needsHook)
@@ -65,7 +64,12 @@ namespace AdvancedLoader
                         Hooks.Active = context;
                     }
 
-                    Hooks.Parts = new PartsLoadContext { Target = chaCtrl.chaFile, BodyParts = options.BodyParts, FaceParts = options.FaceParts, ClothesParts = options.ClothesParts };
+                    KeepUntickedCharacterMaterials(chaCtrl, options, materialSnapshot);
+                    Hooks.Parts = new PartsLoadContext
+                    {
+                        Target = chaCtrl.chaFile, BodyParts = options.BodyParts, FaceParts = options.FaceParts, ClothesParts = options.ClothesParts,
+                        KeptPluginData = OtherPlugins.KeptData(chaCtrl, options, card)
+                    };
                     try
                     {
                         var info = new CustomCharaFileInfo { FullPath = card.Path, FileName = System.IO.Path.GetFileName(card.Path) };
@@ -87,7 +91,6 @@ namespace AdvancedLoader
 
                 if (MaterialEditorPresence.Available)
                 {
-                    KeepUntickedCharacterMaterials(chaCtrl, options, materialSnapshot);
                     if (options.Clothes) KeepUntickedClothesMaterials(chaCtrl, options, materialSnapshot);
                     ApplyMaterialGroups(chaCtrl, card, options.MaterialGroups, options.MaterialCleanCopy);
                     // With "Clothes" the game (and Material Editor) replaced every accessory slot
@@ -101,7 +104,8 @@ namespace AdvancedLoader
             {
                 if (toggles != null && previousToggles != null)
                     for (var i = 0; i < toggles.Length && i < previousToggles.Length; i++) SetToggle(toggles, i, previousToggles[i]);
-                RestorePluginToggles(previousPluginToggles);
+                OtherPlugins.Restore(otherPlugins);
+                StopKeepingCharacterMaterials();
                 Busy = false;
             }
         }
@@ -113,7 +117,7 @@ namespace AdvancedLoader
             try
             {
                 var chaCtrl = MakerAPI.GetCharacterControl();
-                var materialSnapshot = TakeMaterialSnapshot(chaCtrl, options);
+                var materialSnapshot = TakeMaterialSnapshot(chaCtrl, card, options);
                 var overlaySnapshot = TakeOverlaySnapshot(chaCtrl, options);
 
                 // The original window has three buttons: 1 = clothes only, 2 = accessories only, 3 = both

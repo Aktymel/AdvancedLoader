@@ -6,9 +6,9 @@ using HarmonyLib;
 using KKABMX.Core;
 using KKABMX.GUI;
 using UnityEngine;
-#if HS2
+#if HS2 || AI
 using AIChara;
-#elif KKS
+#elif KKS || KK
 #endif
 
 namespace AdvancedLoader

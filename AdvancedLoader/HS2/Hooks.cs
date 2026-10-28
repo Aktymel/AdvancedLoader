@@ -48,6 +48,24 @@ namespace AdvancedLoader
             Snapshot(__instance.coordinate, __instance);
         }
 
+        /// <summary>
+        /// Plugins that are not loaded get their previous card data back. First, because in Koikatsu Sunshine KKAPI
+        /// reloads the plugins inside its own postfix; and again last, in case the card data was copied to the character later.
+        /// </summary>
+        [HarmonyPostfix, HarmonyPriority(Priority.First)]
+        [HarmonyPatch(typeof(ChaFileControl), nameof(ChaFileControl.LoadFileLimited), typeof(string), typeof(byte), typeof(bool), typeof(bool), typeof(bool), typeof(bool), typeof(bool))]
+        private static void KeepPluginDataFirstPostfix(ChaFileControl __instance) => KeepPluginData(__instance);
+
+        [HarmonyPostfix, HarmonyPriority(Priority.Last)]
+        [HarmonyPatch(typeof(ChaFileControl), nameof(ChaFileControl.LoadFileLimited), typeof(string), typeof(byte), typeof(bool), typeof(bool), typeof(bool), typeof(bool), typeof(bool))]
+        private static void KeepPluginDataLastPostfix(ChaFileControl __instance) => KeepPluginData(__instance);
+
+        private static void KeepPluginData(ChaFileControl chaFile)
+        {
+            if (Parts?.KeptPluginData == null || ReadingCard || Parts.Target != chaFile) return;
+            OtherPlugins.PutBack(chaFile, Parts.KeptPluginData);
+        }
+
         [HarmonyPostfix]
         [HarmonyPatch(typeof(ChaFileControl), nameof(ChaFileControl.LoadFileLimited), typeof(string), typeof(byte), typeof(bool), typeof(bool), typeof(bool), typeof(bool), typeof(bool))]
         private static void LoadFileLimitedPostfix(ChaFileControl __instance, bool face, bool body, bool coordinate)

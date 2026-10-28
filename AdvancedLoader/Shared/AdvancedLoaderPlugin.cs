@@ -21,14 +21,20 @@ namespace AdvancedLoader
     [BepInDependency("KCOX", BepInDependency.DependencyFlags.SoftDependency)]
 #if HS2
     [BepInProcess("HoneySelect2")]
+#elif AI
+    [BepInProcess("AI-Syoujyo")]
+    [BepInProcess("AI-Shoujo")]
 #elif KKS
     [BepInProcess("KoikatsuSunshine")]
+#elif KK
+    [BepInProcess("Koikatu")]
+    [BepInProcess("Koikatsu Party")]
 #endif
     public class AdvancedLoaderPlugin : BaseUnityPlugin
     {
         public const string GUID = "com.aktymel.advancedloader";
         public const string PluginName = "Advanced Loader";
-        public const string Version = "1.1.0";
+        public const string Version = "1.2.0";
 
         internal static AdvancedLoaderPlugin Instance;
         internal static new ManualLogSource Logger;
@@ -45,7 +51,8 @@ namespace AdvancedLoader
             _openKey = Config.Bind("General", "Open Advanced load", KeyboardShortcut.Empty, "Show or hide the Advanced load window in chara maker.");
             _window = new AdvancedLoadWindow(this, _panels);
 
-            Harmony.CreateAndPatchAll(typeof(Hooks), GUID);
+            var harmony = Harmony.CreateAndPatchAll(typeof(Hooks), GUID);
+            if (MaterialEditorPresence.Available) MaterialEditorBridge.Patch(harmony);
             MakerAPI.RegisterCustomSubCategories += (sender, e) =>
             {
                 _sidebarToggle = e.AddSidebarControl(new SidebarToggle("Advanced load", false, this));

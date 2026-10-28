@@ -2,9 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using MessagePack;
-#if HS2
+#if HS2 || AI
 using AIChara;
-#elif KKS
+#elif KKS || KK
 #endif
 
 namespace AdvancedLoader

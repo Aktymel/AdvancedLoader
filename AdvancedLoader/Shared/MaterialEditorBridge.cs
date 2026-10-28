@@ -11,9 +11,9 @@ using MaterialEditorAPI;
 using MessagePack;
 using UnityEngine;
 using static KK_Plugins.MaterialEditor.MaterialEditorCharaController;
-#if HS2
+#if HS2 || AI
 using AIChara;
-#elif KKS
+#elif KKS || KK
 #endif
 
 namespace AdvancedLoader
@@ -41,6 +41,13 @@ namespace AdvancedLoader
         public List<MaterialTextureProperty> Textures = new List<MaterialTextureProperty>();
         public List<RendererProperty> Renderers = new List<RendererProperty>();
         public Dictionary<int, byte[]> TextureData = new Dictionary<int, byte[]>();
+
+        /// <summary>
+        /// Snapshot only: the character's own original of everything the card changes (values, textures, shaders, renderers).
+        /// Removing a change resets the property to the original saved with that change, which for a change loaded
+        /// from the card is the card character's value, not this character's.
+        /// </summary>
+        public Dictionary<string, object> OriginalValues = new Dictionary<string, object>();
     }
 
     /// <summary>
@@ -100,7 +107,8 @@ namespace AdvancedLoader
         /// <summary>
         /// Copy of the character's current Material Editor changes, so they can be put back after a load replaced them.
         /// </summary>
-        public static object Snapshot(ChaControl chaCtrl)
+        /// <param name="card">Material Editor data of the card about to be loaded, to remember the original values it changes.</param>
+        public static object Snapshot(ChaControl chaCtrl, object card)
         {
             var controller = GetController(chaCtrl);
             var data = new MaterialEditorData();
@@ -117,7 +125,100 @@ namespace AdvancedLoader
             if (textures != null)
                 foreach (var texture in textures)
                     data.TextureData[texture.Key] = texture.Value.Data;
+            if (card is MaterialEditorData cardData) RecordOriginalValues(controller, data, cardData);
             return data;
+        }
+
+        private static void RecordOriginalValues(MaterialEditorCharaController controller, MaterialEditorData snapshot, MaterialEditorData card)
+        {
+            foreach (var entry in card.Floats)
+            {
+                var key = PropertyKey(entry.ObjectType, entry.Slot, entry.MaterialName, entry.Property);
+                if (snapshot.OriginalValues.ContainsKey(key)) continue;
+                // A property the character changed itself already has its original
+                var own = snapshot.Floats.FirstOrDefault(x => PropertyKey(x.ObjectType, x.Slot, x.MaterialName, x.Property) == key && IsCurrentOutfit(controller, x.ObjectType, x.CoordinateIndex));
+                if (own != null)
+                {
+                    if (!string.IsNullOrEmpty(own.ValueOriginal)) snapshot.OriginalValues[key] = own.ValueOriginal;
+                }
+                else if (TryFindMaterial(controller, entry.ObjectType, entry.Slot, entry.MaterialName, out _, out var material) && material.HasProperty("_" + entry.Property))
+                    snapshot.OriginalValues[key] = material.GetFloat("_" + entry.Property).ToString(CultureInfo.InvariantCulture);
+            }
+
+            foreach (var entry in card.Colors)
+            {
+                var key = PropertyKey(entry.ObjectType, entry.Slot, entry.MaterialName, entry.Property);
+                if (snapshot.OriginalValues.ContainsKey(key)) continue;
+                var own = snapshot.Colors.FirstOrDefault(x => PropertyKey(x.ObjectType, x.Slot, x.MaterialName, x.Property) == key && IsCurrentOutfit(controller, x.ObjectType, x.CoordinateIndex));
+                if (own != null) snapshot.OriginalValues[key] = own.ValueOriginal;
+                else if (TryFindMaterial(controller, entry.ObjectType, entry.Slot, entry.MaterialName, out _, out var material) && material.HasProperty("_" + entry.Property))
+                    snapshot.OriginalValues[key] = material.GetColor("_" + entry.Property);
+            }
+
+            foreach (var entry in card.Keywords)
+            {
+                var key = PropertyKey(entry.ObjectType, entry.Slot, entry.MaterialName, entry.Property);
+                if (snapshot.OriginalValues.ContainsKey(key)) continue;
+                var own = snapshot.Keywords.FirstOrDefault(x => PropertyKey(x.ObjectType, x.Slot, x.MaterialName, x.Property) == key && IsCurrentOutfit(controller, x.ObjectType, x.CoordinateIndex));
+                if (own != null) snapshot.OriginalValues[key] = own.ValueOriginal;
+                else if (TryFindMaterial(controller, entry.ObjectType, entry.Slot, entry.MaterialName, out _, out var material))
+                    snapshot.OriginalValues[key] = material.IsKeywordEnabled("_" + entry.Property);
+            }
+
+            foreach (var entry in card.Textures)
+            {
+                var key = PropertyKey(entry.ObjectType, entry.Slot, entry.MaterialName, entry.Property);
+                if (snapshot.OriginalValues.ContainsKey(key + TextureSuffix) || snapshot.OriginalValues.ContainsKey(key + OffsetSuffix) || snapshot.OriginalValues.ContainsKey(key + ScaleSuffix)) continue;
+                if (!TryFindMaterial(controller, entry.ObjectType, entry.Slot, entry.MaterialName, out _, out var material) || !material.HasProperty("_" + entry.Property)) continue;
+                var own = snapshot.Textures.FirstOrDefault(x => PropertyKey(x.ObjectType, x.Slot, x.MaterialName, x.Property) == key && IsCurrentOutfit(controller, x.ObjectType, x.CoordinateIndex));
+                // Material Editor keeps no original texture, so the one on the material now is it (or the character's own replacement, which is put back anyway)
+                snapshot.OriginalValues[key + TextureSuffix] = material.GetTexture("_" + entry.Property);
+                snapshot.OriginalValues[key + OffsetSuffix] = own?.OffsetOriginal ?? material.GetTextureOffset("_" + entry.Property);
+                snapshot.OriginalValues[key + ScaleSuffix] = own?.ScaleOriginal ?? material.GetTextureScale("_" + entry.Property);
+            }
+
+            foreach (var entry in card.Shaders)
+            {
+                var key = PropertyKey(entry.ObjectType, entry.Slot, entry.MaterialName, ShaderKey);
+                if (snapshot.OriginalValues.ContainsKey(key)) continue;
+                if (!TryFindMaterial(controller, entry.ObjectType, entry.Slot, entry.MaterialName, out _, out var material)) continue;
+                var own = snapshot.Shaders.FirstOrDefault(x => PropertyKey(x.ObjectType, x.Slot, x.MaterialName, ShaderKey) == key && IsCurrentOutfit(controller, x.ObjectType, x.CoordinateIndex));
+                snapshot.OriginalValues[key] = string.IsNullOrEmpty(own?.ShaderNameOriginal) ? FormatName(material.shader.name) : own.ShaderNameOriginal;
+                snapshot.OriginalValues[key + RenderQueueSuffix] = own?.RenderQueueOriginal ?? material.renderQueue;
+            }
+
+            foreach (var entry in card.Renderers)
+            {
+                var key = RendererKey(entry.ObjectType, entry.Slot, entry.RendererName, entry.Property);
+                if (snapshot.OriginalValues.ContainsKey(key)) continue;
+                if (!TryFindRenderer(controller, entry.ObjectType, entry.Slot, entry.RendererName, out _, out var renderer)) continue;
+                var own = snapshot.Renderers.FirstOrDefault(x => RendererKey(x.ObjectType, x.Slot, x.RendererName, x.Property) == key && IsCurrentOutfit(controller, x.ObjectType, x.CoordinateIndex));
+                var value = string.IsNullOrEmpty(own?.ValueOriginal) ? RendererValue(renderer, entry.Property) : own.ValueOriginal;
+                if (!string.IsNullOrEmpty(value)) snapshot.OriginalValues[key] = value;
+            }
+        }
+
+        private const string TextureSuffix = "#texture";
+        private const string OffsetSuffix = "#offset";
+        private const string ScaleSuffix = "#scale";
+        private const string ShaderKey = "#shader";
+        private const string RenderQueueSuffix = "#queue";
+
+        private static string PropertyKey(ObjectType type, int slot, string material, string property) => $"{(int)type}/{slot}/{material}/{property}";
+
+        private static string RendererKey(ObjectType type, int slot, string renderer, MaterialAPI.RendererProperties property) => $"{(int)type}/{slot}/{renderer}/#renderer{(int)property}";
+
+        /// <summary>Renderer value in the same text form Material Editor saves as the original.</summary>
+        private static string RendererValue(Renderer renderer, MaterialAPI.RendererProperties property)
+        {
+            switch (property)
+            {
+                case MaterialAPI.RendererProperties.Enabled: return renderer.enabled ? "1" : "0";
+                case MaterialAPI.RendererProperties.ReceiveShadows: return renderer.receiveShadows ? "1" : "0";
+                case MaterialAPI.RendererProperties.ShadowCastingMode: return ((int)renderer.shadowCastingMode).ToString();
+                case MaterialAPI.RendererProperties.UpdateWhenOffscreen: return renderer is SkinnedMeshRenderer skinned && skinned.updateWhenOffscreen ? "1" : "0";
+                default: return null;
+            }
         }
 
         private static List<T> Copy<T>(List<T> list)
@@ -235,6 +336,90 @@ namespace AdvancedLoader
             });
         }
 
+        private sealed class KeepContext
+        {
+            public ChaControl Target;
+            public MaterialEditorData Snapshot;
+            public MaterialGroup Groups;
+        }
+
+        private static KeepContext _keep;
+
+        /// <summary>
+        /// For the next Face/Body load of this character: Material Editor takes the body, head and eye changes of
+        /// <paramref name="groups"/> from the snapshot instead of the card. They are swapped in right after Material Editor
+        /// read the card and before it applies anything, so it puts them on the materials itself, also on materials that
+        /// were recreated during the load (e.g. by Uncensor Selector).
+        /// </summary>
+        public static void KeepCharacterGroupsOnLoad(ChaControl chaCtrl, object snapshot, MaterialGroup groups)
+        {
+            _keep = new KeepContext { Target = chaCtrl, Snapshot = snapshot as MaterialEditorData ?? new MaterialEditorData(), Groups = groups };
+        }
+
+        public static void ClearKeep() => _keep = null;
+
+        public static void Patch(Harmony harmony)
+        {
+            var method = AccessTools.Method(typeof(MaterialEditorCharaController), "LoadCharacterExtSaveData");
+            if (method == null)
+            {
+                AdvancedLoaderPlugin.Logger.LogWarning("Material Editor's character loading was not found, unticked Material Editor groups may change on Face/Body loads");
+                return;
+            }
+            harmony.Patch(method, postfix: new HarmonyMethod(typeof(MaterialEditorBridge), nameof(LoadCharacterExtSaveDataPostfix)));
+        }
+
+        private static void LoadCharacterExtSaveDataPostfix(MaterialEditorCharaController __instance)
+        {
+            var keep = _keep;
+            if (keep == null || __instance.ChaControl != keep.Target) return;
+            _keep = null;
+            try
+            {
+                var characterGroups = CollectCharacterGroups(keep.Target, out var rendererGroups);
+                var traverse = Traverse.Create(__instance);
+                var setTexture = AccessTools.Method(typeof(MaterialEditorCharaController), "SetAndGetTextureID");
+
+                bool Kept(ObjectType type, string name, Dictionary<string, MaterialGroup> lookup)
+                {
+                    if (type != ObjectType.Character) return false;
+                    if (!lookup.TryGetValue(name, out var group)) group = GuessCharacterGroup(name);
+                    return (keep.Groups & group) != 0;
+                }
+
+                void Swap<T>(string key, List<T> from, Func<T, ObjectType> type, Func<T, string> name, Dictionary<string, MaterialGroup> lookup, Action<T> fix = null)
+                {
+                    var list = traverse.Field(key).GetValue<List<T>>();
+                    if (list == null) return;
+                    list.RemoveAll(x => Kept(type(x), name(x), lookup));
+                    foreach (var entry in Copy(from.Where(x => Kept(type(x), name(x), lookup)).ToList()))
+                    {
+                        fix?.Invoke(entry);
+                        list.Add(entry);
+                    }
+                }
+
+                var source = keep.Snapshot;
+                Swap(ShaderListKey, source.Shaders, x => x.ObjectType, x => x.MaterialName, characterGroups);
+                Swap(FloatListKey, source.Floats, x => x.ObjectType, x => x.MaterialName, characterGroups);
+                Swap(ColorListKey, source.Colors, x => x.ObjectType, x => x.MaterialName, characterGroups);
+                Swap(KeywordListKey, source.Keywords, x => x.ObjectType, x => x.MaterialName, characterGroups);
+                Swap(RendererListKey, source.Renderers, x => x.ObjectType, x => x.RendererName, rendererGroups);
+                // Material Editor may have dropped the character's old textures while reading the card, so they are registered again
+                Swap(TextureListKey, source.Textures, x => x.ObjectType, x => x.MaterialName, characterGroups, x =>
+                {
+                    if (!x.TexID.HasValue) return;
+                    x.TexID = source.TextureData.TryGetValue(x.TexID.Value, out var bytes) && bytes != null && setTexture != null
+                        ? (int?)(int)setTexture.Invoke(__instance, new object[] { bytes })
+                        : null;
+                });
+            }
+            catch (Exception ex)
+            {
+                AdvancedLoaderPlugin.Logger.LogError($"Failed to keep current Material Editor data: {ex}");
+            }
+        }
+
         /// <summary>
         /// The accessory entries of one card slot, renumbered to the character slot the accessory is loaded into.
         /// </summary>
@@ -276,7 +461,7 @@ namespace AdvancedLoader
         private static void Apply(MaterialEditorCharaController controller, MaterialEditorData source,
             Func<ObjectType, int, string, bool> materialFilter, Func<ObjectType, int, string, bool> rendererFilter, bool clean, int? sourceCoordinate = null)
         {
-            if (clean) RemoveCurrent(controller, materialFilter, rendererFilter);
+            if (clean) RemoveCurrent(controller, materialFilter, rendererFilter, source.OriginalValues);
 
             foreach (var entry in source.Shaders.Where(x => materialFilter(x.ObjectType, x.Slot, x.MaterialName) && FromCoordinate(x.ObjectType, x.CoordinateIndex, sourceCoordinate)))
             {
@@ -324,14 +509,17 @@ namespace AdvancedLoader
         /// Undo every Material Editor change in the filtered group: the original values are put back on the materials
         /// and the entries are dropped, so nothing from an earlier edit survives the copy.
         /// </summary>
+        /// <param name="originalValues">Originals to reset to instead of the ones saved with the changes (see <see cref="MaterialEditorData.OriginalValues"/>).</param>
         private static void RemoveCurrent(MaterialEditorCharaController controller,
-            Func<ObjectType, int, string, bool> materialFilter, Func<ObjectType, int, string, bool> rendererFilter)
+            Func<ObjectType, int, string, bool> materialFilter, Func<ObjectType, int, string, bool> rendererFilter, Dictionary<string, object> originalValues)
         {
             var traverse = Traverse.Create(controller);
 
             var floats = traverse.Field(FloatListKey).GetValue<List<MaterialFloatProperty>>();
             foreach (var entry in floats.Where(x => materialFilter(x.ObjectType, x.Slot, x.MaterialName) && IsCurrentOutfit(controller, x.ObjectType, x.CoordinateIndex)).ToList())
             {
+                if (originalValues.TryGetValue(PropertyKey(entry.ObjectType, entry.Slot, entry.MaterialName, entry.Property), out var original))
+                    entry.ValueOriginal = (string)original;
                 if (TryFindMaterial(controller, entry.ObjectType, entry.Slot, entry.MaterialName, out var go, out var material))
                     controller.RemoveMaterialFloatProperty(entry.Slot, entry.ObjectType, material, entry.Property, go);
                 floats.Remove(entry);
@@ -340,6 +528,8 @@ namespace AdvancedLoader
             var colors = traverse.Field(ColorListKey).GetValue<List<MaterialColorProperty>>();
             foreach (var entry in colors.Where(x => materialFilter(x.ObjectType, x.Slot, x.MaterialName) && IsCurrentOutfit(controller, x.ObjectType, x.CoordinateIndex)).ToList())
             {
+                if (originalValues.TryGetValue(PropertyKey(entry.ObjectType, entry.Slot, entry.MaterialName, entry.Property), out var original))
+                    entry.ValueOriginal = (Color)original;
                 if (TryFindMaterial(controller, entry.ObjectType, entry.Slot, entry.MaterialName, out var go, out var material))
                     controller.RemoveMaterialColorProperty(entry.Slot, entry.ObjectType, material, entry.Property, go);
                 colors.Remove(entry);
@@ -348,6 +538,8 @@ namespace AdvancedLoader
             var keywords = traverse.Field(KeywordListKey).GetValue<List<MaterialKeywordProperty>>();
             foreach (var entry in keywords.Where(x => materialFilter(x.ObjectType, x.Slot, x.MaterialName) && IsCurrentOutfit(controller, x.ObjectType, x.CoordinateIndex)).ToList())
             {
+                if (originalValues.TryGetValue(PropertyKey(entry.ObjectType, entry.Slot, entry.MaterialName, entry.Property), out var original))
+                    entry.ValueOriginal = (bool)original;
                 if (TryFindMaterial(controller, entry.ObjectType, entry.Slot, entry.MaterialName, out var go, out var material))
                     controller.RemoveMaterialKeywordProperty(entry.Slot, entry.ObjectType, material, entry.Property, go);
                 keywords.Remove(entry);
@@ -356,9 +548,19 @@ namespace AdvancedLoader
             var textures = traverse.Field(TextureListKey).GetValue<List<MaterialTextureProperty>>();
             foreach (var entry in textures.Where(x => materialFilter(x.ObjectType, x.Slot, x.MaterialName) && IsCurrentOutfit(controller, x.ObjectType, x.CoordinateIndex)).ToList())
             {
+                var key = PropertyKey(entry.ObjectType, entry.Slot, entry.MaterialName, entry.Property);
+                if (originalValues.TryGetValue(key + OffsetSuffix, out var offset)) entry.OffsetOriginal = (Vector2)offset;
+                if (originalValues.TryGetValue(key + ScaleSuffix, out var scale)) entry.ScaleOriginal = (Vector2)scale;
                 if (TryFindMaterial(controller, entry.ObjectType, entry.Slot, entry.MaterialName, out var go, out var material))
                 {
-                    if (entry.TexID.HasValue) controller.RemoveMaterialTexture(entry.Slot, entry.ObjectType, material, entry.Property, go, false);
+                    if (entry.TexID.HasValue)
+                    {
+                        controller.RemoveMaterialTexture(entry.Slot, entry.ObjectType, material, entry.Property, go, false);
+                        // Material Editor leaves a removed texture on the material until the character is reloaded
+                        // Skipped when the old texture was destroyed together with the old object
+                        if (originalValues.TryGetValue(key + TextureSuffix, out var texture) && (texture == null || (Texture)texture != null))
+                            material.SetTexture("_" + entry.Property, (Texture)texture);
+                    }
                     if (entry.Offset.HasValue) controller.RemoveMaterialTextureOffset(entry.Slot, entry.ObjectType, material, entry.Property, go);
                     if (entry.Scale.HasValue) controller.RemoveMaterialTextureScale(entry.Slot, entry.ObjectType, material, entry.Property, go);
                 }
@@ -369,6 +571,9 @@ namespace AdvancedLoader
             var shaders = traverse.Field(ShaderListKey).GetValue<List<MaterialShader>>();
             foreach (var entry in shaders.Where(x => materialFilter(x.ObjectType, x.Slot, x.MaterialName) && IsCurrentOutfit(controller, x.ObjectType, x.CoordinateIndex)).ToList())
             {
+                var key = PropertyKey(entry.ObjectType, entry.Slot, entry.MaterialName, ShaderKey);
+                if (originalValues.TryGetValue(key, out var shader)) entry.ShaderNameOriginal = (string)shader;
+                if (originalValues.TryGetValue(key + RenderQueueSuffix, out var renderQueue)) entry.RenderQueueOriginal = (int)renderQueue;
                 if (TryFindMaterial(controller, entry.ObjectType, entry.Slot, entry.MaterialName, out var go, out var material))
                 {
                     if (entry.RenderQueue.HasValue) controller.RemoveMaterialShaderRenderQueue(entry.Slot, entry.ObjectType, material, go);
@@ -380,6 +585,8 @@ namespace AdvancedLoader
             var renderers = traverse.Field(RendererListKey).GetValue<List<RendererProperty>>();
             foreach (var entry in renderers.Where(x => rendererFilter(x.ObjectType, x.Slot, x.RendererName) && IsCurrentOutfit(controller, x.ObjectType, x.CoordinateIndex)).ToList())
             {
+                if (originalValues.TryGetValue(RendererKey(entry.ObjectType, entry.Slot, entry.RendererName, entry.Property), out var original))
+                    entry.ValueOriginal = (string)original;
                 if (TryFindRenderer(controller, entry.ObjectType, entry.Slot, entry.RendererName, out var go, out var renderer))
                     controller.RemoveRendererProperty(entry.Slot, entry.ObjectType, renderer, entry.Property, go);
                 renderers.Remove(entry);
@@ -430,10 +637,10 @@ namespace AdvancedLoader
 
             foreach (var renderer in chaCtrl.GetComponentsInChildren<Renderer>(true))
             {
-#if HS2
+#if HS2 || AI
                 if (renderer.GetComponentInParent<CmpClothes>() != null || renderer.GetComponentInParent<CmpHair>() != null || renderer.GetComponentInParent<CmpAccessory>() != null)
                     continue;
-#elif KKS
+#elif KKS || KK
                 if (renderer.GetComponentInParent<ChaClothesComponent>() != null || renderer.GetComponentInParent<ChaCustomHairComponent>() != null || renderer.GetComponentInParent<ChaAccessoryComponent>() != null)
                     continue;
 #endif

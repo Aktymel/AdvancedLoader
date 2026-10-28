@@ -5,7 +5,6 @@ using System.Linq;
 using ChaCustom;
 using HarmonyLib;
 using KKAPI.Maker;
-using KKAPI.Maker.UI;
 using MessagePack;
 using UnityEngine;
 using UnityEngine.UI;
@@ -14,8 +13,6 @@ namespace AdvancedLoader
 {
     internal static partial class LoadRunner
     {
-        private const string ClothesOverlaysToggleText = "Clothes overlays";
-
         /// <summary>Outfit index Material Editor uses for the worn clothes.</summary>
         private static int? CurrentOutfit(ChaControl chaCtrl) => chaCtrl.fileStatus.coordinateType;
 
@@ -25,7 +22,7 @@ namespace AdvancedLoader
             Busy = true;
             Toggle[] toggles = null;
             bool[] previousToggles = null;
-            Dictionary<MakerLoadToggle, bool> previousPluginToggles = null;
+            OtherPlugins.State otherPlugins = null;
             try
             {
                 var chaCtrl = MakerAPI.GetCharacterControl();
@@ -34,12 +31,12 @@ namespace AdvancedLoader
                 var loadOutfits = options.Clothes || options.Accessories != AccessoryMode.Keep;
                 var clothesParts = options.Clothes ? options.ClothesParts : ClothesPart.None;
 
-                var materialSnapshot = MaterialEditorPresence.Available && (loadOutfits || options.Face || options.Body) ? TakeMaterialSnapshot(chaCtrl) : null;
+                var materialSnapshot = MaterialEditorPresence.Available && (loadOutfits || options.Face || options.Body) ? TakeMaterialSnapshot(chaCtrl, card) : null;
                 var overlaySnapshot = loadOutfits && Dependencies.ClothesOverlays.IsOk ? ClothesOverlayBridge.TakeSnapshot(chaCtrl) : null;
                 var bonemodSnapshot = TakeBonemodSnapshot(chaCtrl, options);
                 var outfitNames = loadOutfits ? Enumerable.Range(0, chaCtrl.chaFile.coordinate.Length).Select(i => Outfits.GetName(chaCtrl, i)).ToList() : null;
 
-                var anyNative = options.Face || options.Body || options.Hair || options.Parameters || loadOutfits || options.PluginToggles.Values.Any(x => x);
+                var anyNative = options.Face || options.Body || options.Hair || options.Parameters || loadOutfits || OtherPlugins.AnyLoaded(options, card);
                 OutfitLoadContext outfitContext = null;
 
                 if (anyNative)
@@ -61,7 +58,7 @@ namespace AdvancedLoader
                     SetToggle(toggles, 2, options.Hair);
                     SetToggle(toggles, 3, parameters);
                     SetToggle(toggles, 4, loadOutfits);
-                    previousPluginToggles = ApplyPluginToggles(options);
+                    otherPlugins = OtherPlugins.Apply(options, card);
 
                     if (loadOutfits)
                     {
@@ -79,7 +76,12 @@ namespace AdvancedLoader
                         Hooks.Outfits = outfitContext;
                     }
 
-                    Hooks.Parts = new PartsLoadContext { Target = chaCtrl.chaFile, BodyParts = options.BodyParts, FaceParts = options.FaceParts };
+                    KeepUntickedCharacterMaterials(chaCtrl, options, materialSnapshot);
+                    Hooks.Parts = new PartsLoadContext
+                    {
+                        Target = chaCtrl.chaFile, BodyParts = options.BodyParts, FaceParts = options.FaceParts,
+                        KeptPluginData = OtherPlugins.KeptData(chaCtrl, options, card)
+                    };
                     try
                     {
                         LoadCharacterLikeGame(chaCtrl, card.Path, options.Face, options.Body, options.Hair, parameters, loadOutfits);
@@ -96,16 +98,14 @@ namespace AdvancedLoader
                 if (outfitContext != null && outfitContext.FinalCount > 0)
                 {
                     KeepOutfitNames(chaCtrl, card, outfitContext, outfitNames);
-                    // Clothes Overlay Mod only loads the card's overlays when its toggle is on; otherwise it kept them
-                    options.PluginToggles.TryGetValue(ClothesOverlaysToggleText, out var overlaysLoaded);
-                    if (overlaySnapshot != null && overlaysLoaded) RebuildOutfitOverlays(chaCtrl, outfitContext, overlaySnapshot);
+                    // Clothes Overlay Mod only loads the card's overlays together with Clothes; otherwise it kept them
+                    if (overlaySnapshot != null && options.Clothes) RebuildOutfitOverlays(chaCtrl, outfitContext, overlaySnapshot);
                 }
 
                 if (bonemodSnapshot != null) ApplyBonemod(chaCtrl, card, options, bonemodSnapshot);
 
                 if (MaterialEditorPresence.Available)
                 {
-                    KeepUntickedCharacterMaterials(chaCtrl, options, materialSnapshot);
                     if (outfitContext != null && outfitContext.FinalCount > 0) FixOutfitMaterials(chaCtrl, card, outfitContext, materialSnapshot);
                     ApplyCharacterMaterialGroups(chaCtrl, card, options, outfitContext);
                 }
@@ -116,7 +116,8 @@ namespace AdvancedLoader
             {
                 if (toggles != null && previousToggles != null)
                     for (var i = 0; i < toggles.Length && i < previousToggles.Length; i++) SetToggle(toggles, i, previousToggles[i]);
-                RestorePluginToggles(previousPluginToggles);
+                OtherPlugins.Restore(otherPlugins);
+                StopKeepingCharacterMaterials();
                 Busy = false;
             }
         }
@@ -130,7 +131,7 @@ namespace AdvancedLoader
             try
             {
                 var chaCtrl = MakerAPI.GetCharacterControl();
-                var materialSnapshot = TakeMaterialSnapshot(chaCtrl, options);
+                var materialSnapshot = TakeMaterialSnapshot(chaCtrl, card, options);
                 var overlaySnapshot = TakeOverlaySnapshot(chaCtrl, options);
 
                 // The original window has one Load button with Clothes and Accessories toggles
@@ -192,11 +193,11 @@ namespace AdvancedLoader
             }
         }
 
-        private static object TakeMaterialSnapshot(ChaControl chaCtrl)
+        private static object TakeMaterialSnapshot(ChaControl chaCtrl, CardData card)
         {
             try
             {
-                return MaterialEditorBridge.Snapshot(chaCtrl);
+                return MaterialEditorBridge.Snapshot(chaCtrl, card.Materials);
             }
             catch (Exception ex)
             {
@@ -328,7 +329,11 @@ namespace AdvancedLoader
         /// </summary>
         private static void LoadCharacterLikeGame(ChaControl chaCtrl, string path, bool face, bool body, bool hair, bool parameters, bool coordinate)
         {
+#if KK
+            chaCtrl.chaFile.LoadFileLimited(path, chaCtrl.sex, face, body, hair, parameters, coordinate);
+#else
             chaCtrl.chaFile.LoadFileLimited(path, chaCtrl.sex, face, body, hair, parameters, coordinate, false);
+#endif
             chaCtrl.ChangeCoordinateType();
             chaCtrl.Reload(!coordinate, !face && !coordinate, !hair, !body);
             Singleton<CustomBase>.Instance.updateCustomUI = true;

@@ -2,11 +2,12 @@
   <!-- Settings shared by every game's project (HS2/, KKS/…). -->
 
   <PropertyGroup>
+    <TargetFramework>net46</TargetFramework>
     <LangVersion>latest</LangVersion>
     <DebugType>embedded</DebugType>
     <RootNamespace>AdvancedLoader</RootNamespace>
 
-    <Version>1.1.0</Version>
+    <Version>1.2.0</Version>
     <AssemblyTitle>Advanced Loader</AssemblyTitle>
     <Product>Advanced Loader</Product>
     <Description>Load chosen parts of character and clothes cards in the character maker</Description>
@@ -14,16 +15,31 @@
     <Copyright>Copyright © 2026 Aktymel</Copyright>
   </PropertyGroup>
 
-  <!-- Game folders, one per game (not committed):
+  <!-- Optional game folders, only used to copy the built plugin into the game (not committed):
        <Project><PropertyGroup>
          <HS2GamePath>D:\Games\HoneySelect2</HS2GamePath>
          <KKSGamePath>D:\Games\KoikatsuSunshine</KKSGamePath>
        </PropertyGroup></Project>
-       A single project can also be built with -p:GamePath=... -->
+       Also AIGamePath and KKGamePath. -->
   <Import Project="$(MSBuildThisFileDirectory)GamePath.user.props" Condition="Exists('$(MSBuildThisFileDirectory)GamePath.user.props')" />
+
+  <!-- Game and plugin libraries come from NuGet (see nuget.config), so every game builds without it being installed.
+       They are only compiled against; the game provides them at runtime. -->
+  <ItemDefinitionGroup>
+    <PackageReference>
+      <PrivateAssets>all</PrivateAssets>
+      <ExcludeAssets>runtime</ExcludeAssets>
+    </PackageReference>
+  </ItemDefinitionGroup>
 
   <ItemGroup>
     <Compile Include="$(MSBuildThisFileDirectory)Shared\**\*.cs" />
-    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" />
+    <PackageReference Include="IllusionLibs.BepInEx" Version="5.4.22" />
   </ItemGroup>
+
+  <!-- Copies the built plugin into the game when its folder is set; turn off with -p:CopyToGame=false -->
+  <Target Name="CopyToGame" AfterTargets="Build" Condition="'$(CopyToGame)' != 'false' And '$(GamePath)' != '' And Exists('$(GamePath)\BepInEx\plugins')">
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(GamePath)\BepInEx\plugins" />
+  </Target>
 </Project>

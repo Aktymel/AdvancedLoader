@@ -56,7 +56,11 @@ namespace AdvancedLoader
         private static ChaFile _pendingOutfitTarget;
 
         [HarmonyPrefix]
+#if KK
+        [HarmonyPatch(typeof(ChaFileControl), nameof(ChaFileControl.LoadFileLimited), typeof(string), typeof(byte), typeof(bool), typeof(bool), typeof(bool), typeof(bool), typeof(bool))]
+#else
         [HarmonyPatch(typeof(ChaFileControl), nameof(ChaFileControl.LoadFileLimited), typeof(string), typeof(byte), typeof(bool), typeof(bool), typeof(bool), typeof(bool), typeof(bool), typeof(bool))]
+#endif
         private static void LoadFileLimitedPrefix(ChaFileControl __instance)
         {
             _bodyBefore = null;
@@ -74,8 +78,38 @@ namespace AdvancedLoader
                 Outfits.Before = __instance.coordinate.Select(x => x.SaveBytes()).ToList();
         }
 
-        [HarmonyPostfix]
+        /// <summary>
+        /// Plugins that are not loaded get their previous card data back. First, because in Koikatsu Sunshine KKAPI
+        /// reloads the plugins inside its own postfix; and again last, in case the card data was copied to the character later.
+        /// </summary>
+        [HarmonyPostfix, HarmonyPriority(Priority.First)]
+#if KK
+        [HarmonyPatch(typeof(ChaFileControl), nameof(ChaFileControl.LoadFileLimited), typeof(string), typeof(byte), typeof(bool), typeof(bool), typeof(bool), typeof(bool), typeof(bool))]
+#else
         [HarmonyPatch(typeof(ChaFileControl), nameof(ChaFileControl.LoadFileLimited), typeof(string), typeof(byte), typeof(bool), typeof(bool), typeof(bool), typeof(bool), typeof(bool), typeof(bool))]
+#endif
+        private static void KeepPluginDataFirstPostfix(ChaFileControl __instance) => KeepPluginData(__instance);
+
+        [HarmonyPostfix, HarmonyPriority(Priority.Last)]
+#if KK
+        [HarmonyPatch(typeof(ChaFileControl), nameof(ChaFileControl.LoadFileLimited), typeof(string), typeof(byte), typeof(bool), typeof(bool), typeof(bool), typeof(bool), typeof(bool))]
+#else
+        [HarmonyPatch(typeof(ChaFileControl), nameof(ChaFileControl.LoadFileLimited), typeof(string), typeof(byte), typeof(bool), typeof(bool), typeof(bool), typeof(bool), typeof(bool), typeof(bool))]
+#endif
+        private static void KeepPluginDataLastPostfix(ChaFileControl __instance) => KeepPluginData(__instance);
+
+        private static void KeepPluginData(ChaFileControl chaFile)
+        {
+            if (Parts?.KeptPluginData == null || ReadingCard || Parts.Target != chaFile) return;
+            OtherPlugins.PutBack(chaFile, Parts.KeptPluginData);
+        }
+
+        [HarmonyPostfix]
+#if KK
+        [HarmonyPatch(typeof(ChaFileControl), nameof(ChaFileControl.LoadFileLimited), typeof(string), typeof(byte), typeof(bool), typeof(bool), typeof(bool), typeof(bool), typeof(bool))]
+#else
+        [HarmonyPatch(typeof(ChaFileControl), nameof(ChaFileControl.LoadFileLimited), typeof(string), typeof(byte), typeof(bool), typeof(bool), typeof(bool), typeof(bool), typeof(bool), typeof(bool))]
+#endif
         private static void LoadFileLimitedPostfix(ChaFileControl __instance, bool face, bool body, bool coordinate)
         {
             if (ReadingCard) return;

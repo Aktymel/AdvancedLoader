@@ -62,7 +62,7 @@ namespace AdvancedLoader
         public AccessoryPlacement Placement = AccessoryPlacement.SameSlots;
         public int Shift = 10;
 
-#if KKS
+#if KKS || KK
         /// <summary>Which of the card's outfits are loaded with Clothes, and into which of the character's outfits.</summary>
         public OutfitMode OutfitSelection = OutfitMode.All;
         public readonly HashSet<int> SelectedOutfits = new HashSet<int>();
@@ -83,9 +83,9 @@ namespace AdvancedLoader
         public bool MaterialFollowAccessories = true;
 
         /// <summary>
-        /// Values for other plugins' load toggles (by their text), used only for this window's loads.
+        /// Other plugins whose card data is loaded, by their data ID (see <see cref="OtherPlugins"/>).
         /// Missing means off, so nothing is loaded from the card that was not asked for.
         /// </summary>
-        public readonly Dictionary<string, bool> PluginToggles = new Dictionary<string, bool>();
+        public readonly Dictionary<string, bool> OtherPlugins = new Dictionary<string, bool>();
     }
 }
