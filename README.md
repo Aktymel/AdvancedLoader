@@ -2,6 +2,8 @@
 
 A plugin that loads only specific parts of a card without overwriting the rest.
 
+Supported games: Honey Select 2, Koikatsu Sunshine.
+
 ![Advanced load in the character maker](AdvancedLoader/screenshots/5_ex.png)
 
 ## Features
