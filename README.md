@@ -2,8 +2,8 @@
 
 A plugin that loads only specific parts of a card without overwriting the rest.
 
-Supported games: Honey Select 2, Koikatsu Sunshine.
-Also built for AI-Shoujo and Koikatsu, but not tested there yet.
+Supported games: Honey Select 2, Koikatsu Sunshine, Koikatsu.
+Also built for AI-Shoujo, but not tested there yet.
 
 | Honey Select 2 | Koikatsu Sunshine |
 |---|---|
@@ -45,7 +45,7 @@ Copy the file for your game into `BepInEx\plugins`:
 - Honey Select 2: `HS2_AdvancedLoader.dll`
 - Koikatsu Sunshine: `KKS_AdvancedLoader.dll`
 - AI-Shoujo (not tested): `AI_AdvancedLoader.dll`
-- Koikatsu (not tested): `KK_AdvancedLoader.dll`
+- Koikatsu: `KK_AdvancedLoader.dll`
 
 ## Usage
 
@@ -68,7 +68,7 @@ A keyboard shortcut for the window can be set in the plugin settings (F1).
 
 ## Changelog
 
-- 1.2.0 — *Other plugins* lists every plugin with data on the card and keeps the unticked ones; unticked Material Editor groups stay as they were on Face/Body loads; untested AI-Shoujo and Koikatsu versions.
+- 1.2.0 — *Other plugins* lists every plugin with data on the card and keeps the unticked ones; unticked Material Editor groups stay as they were on Face/Body loads; Koikatsu version, untested AI-Shoujo version.
 - 1.1.0 — Koikatsu Sunshine version, outfit selection for Koikatsu Sunshine.
 - 1.0.0 — first public release.
 
