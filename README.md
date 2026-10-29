@@ -11,17 +11,17 @@ Also built for AI-Shoujo, but not tested there yet.
 
 ## Features
 
-- **Advanced load** button next to the maker's *Load character* and *Clothes > Load* pages.
+- **Advanced load** button to open new menu for loading specific features from card without breaking currently loaded card.
 - **Body categories** (Breast, Legs, Eyes, Nose, Makeup…), including the ABMX bonemod sliders.
 - **Clothes categories** (Top, Bottom, Inner top/bottom, Gloves, Pantyhose, Socks, Shoes), including their Material Editor data and clothes overlays.
 - **Accessories**: select which accessories to copy, then either overwrite the old ones or put them into free slots.
-- **Material Editor groups** (Body, Head, Eyes, Hair, Clothes) with the *Clean copy* feature: changes of the group are reset before the card's changes are applied, so nothing from earlier edits is left behind.
-- **Other plugins**: every plugin with data on the card is listed; only the ticked ones are loaded from the card, the others keep the character's current data.
-- The game's original load windows are not changed.
+- **Material Editor groups** (Body, Head, Eyes, Hair, Clothes)
+- **Other plugins**: every plugin with data on the card is listed.
+
 
 ### Koikatsu Sunshine / Koikatsu: outfits
 
-- Load all or chosen outfits into the same, shifted or new outfit slots; the other outfits are kept.
+- Supports outfits
 
 ![Outfits](AdvancedLoader/screenshots/6_kks_outfits.png)
 ## Screenshots
@@ -50,9 +50,10 @@ Copy the file for your game into `BepInEx\plugins`:
 
 ## Usage
 
-1. In the character maker open *Load character* or *Clothes > Load*.
+1. In the character maker open *Load character* or *Clothes > Load*, or the outfit list in the main game (Studio coming soon).
 2. Click the **Advanced load** button and select a card in the game's list.
 3. Tick what to load and press **Load** in **Advanced load**.
+- The game's original load windows are not changed.
 
 A keyboard shortcut for the window can be set in the plugin settings (F1).
 
@@ -69,6 +70,7 @@ A keyboard shortcut for the window can be set in the plugin settings (F1).
 
 ## Changelog
 
+- 1.3.0 — Full *main game* support.
 - 1.2.0 — *Other plugins* lists every plugin with data on the card and keeps the unticked ones; unticked Material Editor groups stay as they were on Face/Body loads; Koikatsu version, untested AI-Shoujo version.
 - 1.1.0 — Koikatsu Sunshine version, outfit selection for Koikatsu Sunshine.
 - 1.0.0 — first public release.

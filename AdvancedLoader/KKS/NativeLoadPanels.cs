@@ -1,18 +1,14 @@
 using System.Linq;
 using BepInEx.Bootstrap;
+using BepInEx.Configuration;
 using ChaCustom;
 using HarmonyLib;
+using KKAPI.Maker;
 using KKAPI.Utilities;
 using UnityEngine;
 
 namespace AdvancedLoader
 {
-    /// <summary>
-    /// Watches the game's "Load character" and "Clothes > Load" pages: which one is open and which card is selected in it.
-    /// Also draws the "Advanced load" button while one of them is open. The HS2API sidebar ("Plugin Settings") is not
-    /// used for this because other plugins can hide it.
-    /// In Koikatsu Sunshine save and load share one file window per page, told apart by its window type.
-    /// </summary>
     internal sealed class NativeLoadPanels
     {
         private const string BrowserFoldersGUID = "marco.FolderBrowser";
@@ -21,26 +17,54 @@ namespace AdvancedLoader
         private CustomCharaFile _charaFile;
         private CustomCoordinateFile _coordinateFile;
 
-        /// <summary>Mode of the load panel that is open, or null when none is.</summary>
+        // Outfit list of the H scene and the scene it belongs to, set by Hooks when it starts
+        public static clothesFileControl FreeHPanel;
+        public static string FreeHSceneName;
+        public static bool FreeHPanelExists => FreeHPanel != null;
+
+        // Same check as BrowserFolders: hidden while settings or another screen is on top
+#if KK
+        public static string AddSceneName => Singleton<Manager.Scene>.Instance?.AddSceneName;
+        private static bool SceneCovered => Singleton<Manager.Scene>.Instance == null || Singleton<Manager.Scene>.Instance.IsOverlap || Singleton<Manager.Scene>.Instance.IsNowLoadingFade;
+#else
+        public static string AddSceneName => Manager.Scene.AddSceneName;
+        private static bool SceneCovered => Manager.Scene.IsOverlap || Manager.Scene.IsNowLoadingFade;
+#endif
+
         public LoadMode? OpenMode { get; private set; }
 
-        /// <summary>Card selected in the open load panel, or null.</summary>
+        public ChaControl Target { get; private set; }
+
+        public bool InFreeH => !MakerAPI.InsideAndLoaded && OpenMode != null;
+
         public string SelectedPath { get; private set; }
 
-        /// <summary>Name shown for the selected card in the game's list (character name or outfit name).</summary>
         public string SelectedName { get; private set; }
 
         public void Reset()
         {
             _charaFile = null;
             _coordinateFile = null;
+            Clear();
+        }
+
+        private void Clear()
+        {
             OpenMode = null;
+            Target = null;
             SelectedPath = null;
             SelectedName = null;
         }
 
         public void Update()
         {
+            if (!MakerAPI.InsideAndLoaded)
+            {
+                UpdateFreeH();
+                return;
+            }
+
+            Target = MakerAPI.GetCharacterControl();
             if (_charaFile == null) _charaFile = FindInScene<CustomCharaFile>();
             if (_coordinateFile == null) _coordinateFile = FindInScene<CustomCoordinateFile>();
 
@@ -56,16 +80,27 @@ namespace AdvancedLoader
             }
             else
             {
-                OpenMode = null;
-                SelectedPath = null;
-                SelectedName = null;
+                Clear();
             }
+        }
+
+        private void UpdateFreeH()
+        {
+            var panel = FreeHPanel;
+            if (panel == null || !panel.gameObject.activeInHierarchy || panel.chaCtrl == null || SceneCovered || AddSceneName != FreeHSceneName)
+            {
+                Clear();
+                return;
+            }
+            OpenMode = LoadMode.Coordinate;
+            Target = panel.chaCtrl;
+            SetSelection(panel.listCtrl);
         }
 
         private void SetSelection(CustomFileListCtrl list)
         {
 #if KK
-            // Koikatsu Party's list differs from Koikatu's, so it is read by name and gives nothing where it does not fit
+            // Koikatsu Party's list differs, so read by name
             var item = list == null ? null : Traverse.Create(list).Method("GetSelectTopItem").GetValue();
             var info = item == null ? null : ReadMember(item, "info");
             SelectedPath = info == null ? null : ReadMember(info, "FullPath") as string;
@@ -104,17 +139,10 @@ namespace AdvancedLoader
         private static float FolderWindowWidth => Screen.width * 0.125f;
         private static bool HasFolderWindow => Chainloader.PluginInfos.ContainsKey(BrowserFoldersGUID);
 
-        /// <summary>
-        /// The button sits right above BrowserFolders' folder window when it is installed, or in its place when it is not.
-        /// </summary>
         private static Rect ButtonRect => HasFolderWindow
             ? new Rect(FolderWindowX, FolderWindowY - Gap - ButtonHeight, FolderWindowWidth, ButtonHeight)
             : new Rect(FolderWindowX, FolderWindowY, FolderWindowWidth, ButtonHeight);
 
-        /// <summary>
-        /// Where the Advanced load window opens first: growing upwards from the button when the folder window is below it,
-        /// otherwise down from the button.
-        /// </summary>
         public static Rect DefaultWindowRect(float minWidth, float maxHeight)
         {
             var button = ButtonRect;
@@ -127,7 +155,47 @@ namespace AdvancedLoader
             return new Rect(button.x, Mathf.Max(10, bottom - height), width, height);
         }
 
-        /// <returns>True when the "Advanced load" button was clicked.</returns>
+        private const string QuickLoadGUID = "QuickLoad";
+        private static ConfigEntryBase _quickLoadOutfit;
+        private static bool _quickLoadChecked;
+        private static GUIStyle _noticeStyle;
+
+        // QuickLoadOption loads an outfit in H as soon as it is clicked
+        private static bool QuickLoadLoadsOnClick
+        {
+            get
+            {
+                if (!_quickLoadChecked)
+                {
+                    _quickLoadChecked = true;
+                    if (Chainloader.PluginInfos.TryGetValue(QuickLoadGUID, out var info) && info.Instance != null)
+                    {
+                        var definition = new ConfigDefinition("Hide confirmation dialog", "Outfit(HScene)");
+                        if (info.Instance.Config.ContainsKey(definition)) _quickLoadOutfit = info.Instance.Config[definition];
+                    }
+                }
+                return _quickLoadOutfit != null && _quickLoadOutfit.BoxedValue is bool on && on;
+            }
+        }
+
+        public void DrawNotices()
+        {
+            if (!InFreeH || !QuickLoadLoadsOnClick) return;
+
+            var button = ButtonRect;
+            var rect = new Rect(button.x, button.y - Gap - 46, button.width, 46);
+            var skin = GUI.skin;
+            GUI.skin = IMGUIUtils.SolidBackgroundGuiSkin;
+            if (_noticeStyle == null)
+            {
+                _noticeStyle = new GUIStyle(GUI.skin.label) { fontStyle = FontStyle.Bold, wordWrap = true, alignment = TextAnchor.MiddleCenter };
+                _noticeStyle.normal.textColor = new Color(1f, 0.85f, 0.2f);
+            }
+            GUI.Box(rect, GUIContent.none);
+            GUI.Label(rect, "Quick load is enabled! Turn off Outfit(HScene) in QuickLoadOption (F1).", _noticeStyle);
+            GUI.skin = skin;
+        }
+
         public bool DrawOpenButton()
         {
             if (OpenMode == null) return false;
@@ -147,9 +215,7 @@ namespace AdvancedLoader
             return Resources.FindObjectsOfTypeAll<T>().FirstOrDefault(x => x.gameObject.scene.IsValid());
         }
 
-        /// <summary>
-        /// Maker keeps inactive menus alive and hides them by CanvasGroup alpha, so activeInHierarchy alone is not enough.
-        /// </summary>
+        // Maker hides inactive menus by CanvasGroup alpha
         private static bool IsShownOnScreen(Component component)
         {
             if (component == null || !component.gameObject.activeInHierarchy) return false;

@@ -13,31 +13,22 @@ using AIChara;
 
 namespace AdvancedLoader
 {
-    /// <summary>
-    /// Kept apart from <see cref="AbmxBridge"/> so checking for ABMX never loads its types.
-    /// </summary>
+    // Separate so the check never loads ABMX types
     internal static class AbmxPresence
     {
         public const string GUID = "KKABMX.Core";
 
-        /// <summary>Texts of ABMX's own load toggles; the window handles bonemod by category instead.</summary>
         public static readonly string[] LoadToggleTexts = { "Face Bonemod", "Body Bonemod" };
 
-        /// <summary>Installed in a version this plugin works with.</summary>
         public static bool Available => Dependencies.Abmx.IsOk;
     }
 
-    /// <summary>
-    /// Copies bonemod (ABMX) sliders by maker category. Every slider ABMX adds to the maker knows its category
-    /// (InterfaceData.BoneControls), so a bone is taken from the card when its category is ticked and kept otherwise.
-    /// Only call into this class when <see cref="AbmxPresence.Available"/> is true.
-    /// </summary>
+    // Only use when AbmxPresence.Available
     internal static class AbmxBridge
     {
         private static readonly MethodInfo ReadModifiersMethod = AccessTools.Method(typeof(BoneController), "ReadModifiers");
         private static Dictionary<string, string> _boneCategories;
 
-        /// <summary>Body bonemod of a card (accessory bones are left out).</summary>
         public static object ReadFromCard(ChaFile file)
         {
             var data = ExtendedSave.GetExtendedDataById(file, KKABMX_Core.ExtDataGUID);
@@ -45,7 +36,6 @@ namespace AdvancedLoader
             return (modifiers ?? new List<BoneModifier>()).Where(IsBodyBone).Select(x => x.Clone()).ToList();
         }
 
-        /// <summary>Copy of the character's current body bonemod.</summary>
         public static object Snapshot(ChaControl chaCtrl)
         {
             var controller = chaCtrl.GetComponent<BoneController>();
@@ -55,10 +45,6 @@ namespace AdvancedLoader
 
         private static bool IsBodyBone(BoneModifier modifier) => modifier.BoneLocation < BoneLocation.Accessory;
 
-        /// <summary>
-        /// For every face bone (when Face is loaded) and body bone (when Body is loaded): take the card's value when the
-        /// bone's category is ticked, otherwise the value from before the load.
-        /// </summary>
         public static void Apply(ChaControl chaCtrl, object cardData, object snapshot, bool face, FacePart faceParts, bool body, BodyPart bodyParts)
         {
             if (!face && !body) return;
@@ -104,7 +90,6 @@ namespace AdvancedLoader
             controller.NeedsFullRefresh = true;
         }
 
-        /// <summary>Bone name -> maker sub category ("Breast", "Nose"…) of the ABMX slider that edits it.</summary>
         private static Dictionary<string, string> GetBoneCategories()
         {
             if (_boneCategories != null) return _boneCategories;
@@ -119,7 +104,7 @@ namespace AdvancedLoader
             return _boneCategories;
         }
 
-        /// <summary>Finger sliders are generated per finger bone rather than listed in BoneControls.</summary>
+        // Finger sliders are per finger bone, not in BoneControls
         public static string CategoryOf(string boneName)
         {
             if (GetBoneCategories().TryGetValue(boneName, out var category)) return category;

@@ -5,21 +5,11 @@ using HarmonyLib;
 
 namespace AdvancedLoader
 {
-    /// <summary>
-    /// Both maker load flows end with ChaControl.Reload:
-    /// - "Load character" (CvsO_CharaLoad): LoadFileLimited -> ChangeNowCoordinate -> Reload
-    /// - "Clothes > Load" (CvsC_ClothesLoad): nowCoordinate.LoadFile -> (restore clothes or accessories) -> Reload -> AssignCoordinate
-    /// We snapshot accessories before the file is read, compute the result right after,
-    /// and write it in Reload, after the game and MoreAccessories have finished replacing slots.
-    /// </summary>
     internal static class Hooks
     {
         internal static AccessoryLoadContext Active;
         internal static PartsLoadContext Parts;
 
-        /// <summary>
-        /// Set while the plugin reads a card for the window, so that read is not treated as a load.
-        /// </summary>
         internal static bool ReadingCard;
 
         private static List<ChaFileAccessory.PartsInfo> _before;
@@ -28,6 +18,14 @@ namespace AdvancedLoader
         private static ChaFileClothes.PartsInfo[] _clothesBefore;
         private static ChaFile _pendingTarget;
         private static List<ChaFileAccessory.PartsInfo> _pendingResult;
+
+        [HarmonyPostfix]
+        [HarmonyPatch(typeof(HSceneSpriteCoordinatesCard), nameof(HSceneSpriteCoordinatesCard.Init))]
+        private static void CoordinatesCardInitPostfix(HSceneSpriteCoordinatesCard __instance)
+        {
+            // HCharaSwitcher copies this panel as "CharacterCard" for its character list
+            if (__instance.name == "CoordinatesCard") NativeLoadPanels.FreeHPanel = __instance;
+        }
 
         [HarmonyPrefix]
         [HarmonyPatch(typeof(ChaFileControl), nameof(ChaFileControl.LoadFileLimited), typeof(string), typeof(byte), typeof(bool), typeof(bool), typeof(bool), typeof(bool), typeof(bool))]
@@ -48,10 +46,7 @@ namespace AdvancedLoader
             Snapshot(__instance.coordinate, __instance);
         }
 
-        /// <summary>
-        /// Plugins that are not loaded get their previous card data back. First, because in Koikatsu Sunshine KKAPI
-        /// reloads the plugins inside its own postfix; and again last, in case the card data was copied to the character later.
-        /// </summary>
+        // First: KKAPI reloads plugins in its postfix (KK/KKS). Last: data copied later
         [HarmonyPostfix, HarmonyPriority(Priority.First)]
         [HarmonyPatch(typeof(ChaFileControl), nameof(ChaFileControl.LoadFileLimited), typeof(string), typeof(byte), typeof(bool), typeof(bool), typeof(bool), typeof(bool), typeof(bool))]
         private static void KeepPluginDataFirstPostfix(ChaFileControl __instance) => KeepPluginData(__instance);
@@ -146,9 +141,6 @@ namespace AdvancedLoader
             }
         }
 
-        /// <summary>
-        /// Combine the snapshot with the card slots and queue the result for Reload. Returns null on failure.
-        /// </summary>
         private static List<ChaFileAccessory.PartsInfo> PrepareResult(ChaFile target)
         {
             var before = _before;

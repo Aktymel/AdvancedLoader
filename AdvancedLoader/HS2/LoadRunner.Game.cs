@@ -13,7 +13,6 @@ namespace AdvancedLoader
 {
     internal static partial class LoadRunner
     {
-        /// <summary>Outfit index Material Editor uses for the worn clothes; Honey Select 2 has a single outfit.</summary>
         private static int? CurrentOutfit(ChaControl chaCtrl) => 0;
 
         public static IEnumerator LoadCharacter(CardData card, LoadOptions options)
@@ -85,13 +84,13 @@ namespace AdvancedLoader
 
                 for (var i = 0; i < FramesToWaitForPlugins; i++) yield return null;
 
-                KeepUntickedClothesOverlays(chaCtrl, options, overlaySnapshot);
+                KeepUntickedClothesOverlays(chaCtrl, options.ClothesParts, overlaySnapshot);
 
                 if (bonemodSnapshot != null) ApplyBonemod(chaCtrl, card, options, bonemodSnapshot);
 
                 if (MaterialEditorPresence.Available)
                 {
-                    if (options.Clothes) KeepUntickedClothesMaterials(chaCtrl, options, materialSnapshot);
+                    if (options.Clothes) KeepUntickedClothesMaterials(chaCtrl, options.ClothesParts, materialSnapshot);
                     ApplyMaterialGroups(chaCtrl, card, options.MaterialGroups, options.MaterialCleanCopy);
                     // With "Clothes" the game (and Material Editor) replaced every accessory slot
                     if (options.MaterialFollowAccessories && context?.Result != null)
@@ -110,15 +109,19 @@ namespace AdvancedLoader
             }
         }
 
-        public static IEnumerator LoadCoordinate(CardData card, LoadOptions options)
+        public static IEnumerator LoadCoordinate(CardData card, LoadOptions options, ChaControl target)
         {
             if (Busy) yield break;
             Busy = true;
             try
             {
-                var chaCtrl = MakerAPI.GetCharacterControl();
-                var materialSnapshot = TakeMaterialSnapshot(chaCtrl, card, options);
-                var overlaySnapshot = TakeOverlaySnapshot(chaCtrl, options);
+                var chaCtrl = target;
+                var inMaker = MakerAPI.InsideAndLoaded;
+                // No load buttons outside maker, so plugins take all clothes and accessories from the card
+                var pluginsLoadAll = !inMaker;
+                var materialSnapshot = TakeMaterialSnapshot(chaCtrl, card, options, pluginsLoadAll);
+                var overlaySnapshot = TakeOverlaySnapshot(chaCtrl, options, pluginsLoadAll);
+                var clothesFromCard = options.Clothes ? options.ClothesParts : ClothesPart.None;
 
                 // The original window has three buttons: 1 = clothes only, 2 = accessories only, 3 = both
                 var mode = options.Accessories;
@@ -130,7 +133,7 @@ namespace AdvancedLoader
 
                 if (button != 0)
                 {
-                    var clothesLoad = UnityEngine.Object.FindObjectOfType<CvsC_ClothesLoad>();
+                    var clothesLoad = inMaker ? UnityEngine.Object.FindObjectOfType<CvsC_ClothesLoad>() : null;
                     var window = clothesLoad == null ? null : Traverse.Create(clothesLoad).Field("clothesLoadWin").GetValue<CustomClothesWindow>();
                     var onClick = window == null ? null : button == 1 ? window.onClick01 : button == 2 ? window.onClick02 : window.onClick03;
 
@@ -144,10 +147,11 @@ namespace AdvancedLoader
                     if (button != 2) Hooks.Parts = new PartsLoadContext { CoordinateTarget = chaCtrl.nowCoordinate, ClothesParts = options.ClothesParts };
                     try
                     {
-                        SetCoordinateButtonClicked(button);
+                        if (inMaker) SetCoordinateButtonClicked(button);
                         var info = new CustomClothesFileInfo { FullPath = card.Path, FileName = System.IO.Path.GetFileName(card.Path) };
                         if (onClick != null) onClick(info);
-                        else LoadCoordinateLikeGame(chaCtrl, card.Path, button);
+                        else if (inMaker) LoadCoordinateLikeGame(chaCtrl, card.Path, button);
+                        else LoadCoordinateInH(chaCtrl, card.Path, button);
                     }
                     finally
                     {
@@ -158,14 +162,15 @@ namespace AdvancedLoader
 
                 for (var i = 0; i < FramesToWaitForPlugins; i++) yield return null;
 
-                KeepUntickedClothesOverlays(chaCtrl, options, overlaySnapshot);
+                KeepUntickedClothesOverlays(chaCtrl, clothesFromCard, overlaySnapshot);
 
                 if (MaterialEditorPresence.Available)
                 {
-                    if (options.Clothes) KeepUntickedClothesMaterials(chaCtrl, options, materialSnapshot);
+                    if (options.Clothes || pluginsLoadAll) KeepUntickedClothesMaterials(chaCtrl, clothesFromCard, materialSnapshot);
+                    if (pluginsLoadAll && mode == AccessoryMode.Keep) KeepAllAccessoryMaterials(chaCtrl, materialSnapshot);
                     ApplyMaterialGroups(chaCtrl, card, options.MaterialGroups & MaterialGroup.Clothes, options.MaterialCleanCopy);
                     if (options.MaterialFollowAccessories && context?.Result != null)
-                        FixAccessoryMaterials(chaCtrl, card, context, materialSnapshot, replacedByGame: button == 2 || button == 3);
+                        FixAccessoryMaterials(chaCtrl, card, context, materialSnapshot, replacedByGame: pluginsLoadAll || button == 2 || button == 3);
                 }
 
                 AdvancedLoaderPlugin.Logger.LogMessage($"Loaded {System.IO.Path.GetFileName(card.Path)}");
@@ -184,9 +189,6 @@ namespace AdvancedLoader
             field?.SetValue(null, button);
         }
 
-        /// <summary>
-        /// Same steps as CvsO_CharaLoad's load button, for when the original window was never opened.
-        /// </summary>
         private static void LoadCharacterLikeGame(string path, LoadOptions options)
         {
             var customBase = Singleton<CustomBase>.Instance;
@@ -202,9 +204,21 @@ namespace AdvancedLoader
             customBase.forceUpdateAcsList = true;
         }
 
-        /// <summary>
-        /// Same steps as CvsC_ClothesLoad's three load buttons, for when the original window was never opened.
-        /// </summary>
+        // In H the game only changes the worn clothes and refreshes its clothes buttons
+        private static void LoadCoordinateInH(ChaControl chaCtrl, string path, int button)
+        {
+            var keepAccessories = button == 1 ? MessagePack.MessagePackSerializer.Serialize(chaCtrl.nowCoordinate.accessory) : null;
+            var keepClothes = button == 2 ? MessagePack.MessagePackSerializer.Serialize(chaCtrl.nowCoordinate.clothes) : null;
+
+            chaCtrl.nowCoordinate.LoadFile(path);
+            if (keepAccessories != null) chaCtrl.nowCoordinate.accessory = MessagePack.MessagePackSerializer.Deserialize<ChaFileAccessory>(keepAccessories);
+            if (keepClothes != null) chaCtrl.nowCoordinate.clothes = MessagePack.MessagePackSerializer.Deserialize<ChaFileClothes>(keepClothes);
+            chaCtrl.Reload(false, true, true, true);
+
+            var panel = NativeLoadPanels.FreeHPanel;
+            if (panel != null) Traverse.Create(panel).Field("hSceneSpriteCloth").Method("SetClothCharacter").GetValue();
+        }
+
         private static void LoadCoordinateLikeGame(ChaControl chaCtrl, string path, int button)
         {
             var customBase = Singleton<CustomBase>.Instance;

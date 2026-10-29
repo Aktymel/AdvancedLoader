@@ -9,34 +9,26 @@ using AIChara;
 
 namespace AdvancedLoader
 {
-    /// <summary>
-    /// Everything the Advanced Load window needs from one card, read once when the card is selected.
-    /// </summary>
     internal sealed class CardData
     {
         public string Path;
         public LoadMode Mode;
 
-        /// <summary>All accessory slots (vanilla and MoreAccessories), or null if the card could not be read.</summary>
         public List<ChaFileAccessory.PartsInfo> AccessorySlots;
 
-        /// <summary>Non-empty accessory slots as (slot index, display text).</summary>
         public readonly List<KeyValuePair<int, string>> SlotNames = new List<KeyValuePair<int, string>>();
 
-        /// <summary>MaterialEditorData, kept as object so this class never loads Material Editor types.</summary>
+        // object: no Material Editor types here
         public object Materials;
 
-        /// <summary>Body bonemod (ABMX) of a character card, kept as object for the same reason.</summary>
+        // object: no ABMX types here
         public object Bonemod;
 
-        /// <summary>IDs of the plugin data saved on a character card (see <see cref="OtherPlugins"/>).</summary>
         public readonly HashSet<string> PluginDataIds = new HashSet<string>();
 
 #if KKS || KK
-        /// <summary>All outfits of a character card (empty for a clothes card).</summary>
         public List<CardOutfit> CardOutfits = new List<CardOutfit>();
 
-        /// <summary>Show the accessories of one outfit of a character card in <see cref="AccessorySlots"/> and <see cref="SlotNames"/>.</summary>
         public void ShowOutfit(int index)
         {
             if (index < 0 || index >= CardOutfits.Count) return;

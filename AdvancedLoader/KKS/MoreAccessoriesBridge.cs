@@ -3,11 +3,7 @@ using HarmonyLib;
 
 namespace AdvancedLoader
 {
-    /// <summary>
-    /// MoreAccessories 2 (Koikatsu Sunshine) keeps every slot in ChaFileAccessory.parts itself, so slots 21+ are read and
-    /// written like the first 20. After the array changes size the plugin has to resize its own per-slot data and UI.
-    /// Every member is a no-op when MoreAccessories is not installed.
-    /// </summary>
+    // MoreAccessories 2 keeps all slots in ChaFileAccessory.parts; no-op without it
     internal static class MoreAccessoriesBridge
     {
         public const string GUID = "com.joan6694.illusionplugins.moreaccessories";
@@ -37,9 +33,6 @@ namespace AdvancedLoader
             _updateUI = AccessTools.Method(type, "ManuallyUpdateUI");
         }
 
-        /// <summary>
-        /// Let MoreAccessories catch up with a changed slot count (accessory objects, visibility flags, maker slots).
-        /// </summary>
         public static void Sync(ChaControl chaCtrl)
         {
             if (!Available) return;

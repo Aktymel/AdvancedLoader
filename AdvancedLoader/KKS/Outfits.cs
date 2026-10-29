@@ -16,15 +16,12 @@ namespace AdvancedLoader
 
     internal enum OutfitPlacement
     {
-        /// <summary>Card outfit N goes to outfit N.</summary>
         SameSlots,
-        /// <summary>Card outfit N goes to outfit N + shift.</summary>
         Shift,
-        /// <summary>Card outfits are added after the character's last outfit (needs More Outfit Slots).</summary>
+        // Needs More Outfit Slots
         NewSlots
     }
 
-    /// <summary>One outfit of a character card, read when the card is selected.</summary>
     internal sealed class CardOutfit
     {
         public int Index;
@@ -34,11 +31,6 @@ namespace AdvancedLoader
         public List<KeyValuePair<int, string>> SlotNames;
     }
 
-    /// <summary>
-    /// Outfits (coordinates) of Koikatsu Sunshine characters. A character has 4 outfits; More Outfit Slots allows more
-    /// and also stores their names. Loading a character card with clothes replaces all outfits (and with More Outfit Slots
-    /// also their count), so the loader rebuilds the outfit list itself afterwards, see <see cref="Hooks"/>.
-    /// </summary>
     internal static class Outfits
     {
         private const string MoreOutfitsDataKey = "CoordinateNames";
@@ -49,7 +41,6 @@ namespace AdvancedLoader
         private static MethodInfo _setName;
         private static MethodInfo _updateMakerUI;
 
-        /// <summary>Outfits can be added past the 4 base ones.</summary>
         public static bool CanAddSlots => Dependencies.MoreOutfits.IsOk;
 
         public static string DefaultName(int index) => index < BaseNames.Length ? BaseNames[index] : $"Outfit {index + 1}";
@@ -85,9 +76,6 @@ namespace AdvancedLoader
                 : options.SelectedOutfits.Where(x => x < cardCount).OrderBy(x => x);
         }
 
-        /// <summary>
-        /// Card outfit -> character outfit. Outfits past the 4 base ones are left out without More Outfit Slots.
-        /// </summary>
         public static Dictionary<int, int> MapTargets(LoadOptions options, int cardCount, int characterCount)
         {
             var map = new Dictionary<int, int>();
@@ -125,7 +113,6 @@ namespace AdvancedLoader
             _updateMakerUI = makerUI == null ? null : AccessTools.Method(makerUI, "UpdateMakerUI");
         }
 
-        /// <summary>Name the character's outfit has now (More Outfit Slots), or null.</summary>
         public static string GetName(ChaControl chaCtrl, int index)
         {
             Resolve();
@@ -138,7 +125,6 @@ namespace AdvancedLoader
             if (!string.IsNullOrEmpty(name)) _setName?.Invoke(null, new object[] { chaCtrl, index, name });
         }
 
-        /// <summary>Refresh More Outfit Slots' outfit dropdown after the outfit count changed.</summary>
         public static void UpdateMakerUI()
         {
             Resolve();

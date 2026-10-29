@@ -4,15 +4,9 @@ using BepInEx.Logging;
 using HarmonyLib;
 using KKAPI;
 using KKAPI.Maker;
-using KKAPI.Maker.UI.Sidebar;
-using UniRx;
 
 namespace AdvancedLoader
 {
-    /// <summary>
-    /// Adds an "Advanced load" window to the maker's "Load character" and "Clothes > Load" pages that loads chosen parts
-    /// of the card selected there: face, body, hair, parameters, clothes, single accessory slots and Material Editor groups.
-    /// </summary>
     [BepInPlugin(GUID, PluginName, Version)]
     [BepInDependency(KoikatuAPI.GUID, KoikatuAPI.VersionConst)]
     [BepInDependency(MoreAccessoriesBridge.GUID, BepInDependency.DependencyFlags.SoftDependency)]
@@ -34,7 +28,7 @@ namespace AdvancedLoader
     {
         public const string GUID = "com.aktymel.advancedloader";
         public const string PluginName = "Advanced Loader";
-        public const string Version = "1.2.0";
+        public const string Version = "1.3.0";
 
         internal static AdvancedLoaderPlugin Instance;
         internal static new ManualLogSource Logger;
@@ -42,7 +36,6 @@ namespace AdvancedLoader
         private ConfigEntry<KeyboardShortcut> _openKey;
         private readonly NativeLoadPanels _panels = new NativeLoadPanels();
         private AdvancedLoadWindow _window;
-        private SidebarToggle _sidebarToggle;
 
         private void Awake()
         {
@@ -53,14 +46,8 @@ namespace AdvancedLoader
 
             var harmony = Harmony.CreateAndPatchAll(typeof(Hooks), GUID);
             if (MaterialEditorPresence.Available) MaterialEditorBridge.Patch(harmony);
-            MakerAPI.RegisterCustomSubCategories += (sender, e) =>
-            {
-                _sidebarToggle = e.AddSidebarControl(new SidebarToggle("Advanced load", false, this));
-                _sidebarToggle.ValueChanged.Subscribe(visible => _window.Visible = visible);
-            };
             MakerAPI.MakerExiting += (sender, e) =>
             {
-                _sidebarToggle = null;
                 _window.Reset();
                 _panels.Reset();
             };
@@ -75,12 +62,11 @@ namespace AdvancedLoader
         internal void SetWindowVisible(bool visible)
         {
             _window.Visible = visible;
-            if (_sidebarToggle != null) _sidebarToggle.Value = visible;
         }
 
         private void Update()
         {
-            if (!MakerAPI.InsideAndLoaded) return;
+            if (!MakerAPI.InsideAndLoaded && !NativeLoadPanels.FreeHPanelExists) return;
             _panels.Update();
             if (_openKey.Value.IsDown()) SetWindowVisible(!_window.Visible);
             _window.Update();
@@ -88,7 +74,8 @@ namespace AdvancedLoader
 
         private void OnGUI()
         {
-            if (!MakerAPI.InsideAndLoaded) return;
+            if (!MakerAPI.InsideAndLoaded && !NativeLoadPanels.FreeHPanelExists) return;
+            _panels.DrawNotices();
             if (!_window.Visible && _panels.DrawOpenButton()) SetWindowVisible(true);
             _window.OnGUI();
         }

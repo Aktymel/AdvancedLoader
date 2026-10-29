@@ -9,11 +9,6 @@ using AIChara;
 
 namespace AdvancedLoader
 {
-    /// <summary>
-    /// Runs a load from the Advanced Load window through the game's own load code, so the game's API, Material Editor,
-    /// overlays and other plugins see a normal load. Accessory slots are adjusted by <see cref="Hooks"/>, plugin data is
-    /// fixed up afterwards. The game specific part (which load code to call) is in LoadRunner.Game.cs.
-    /// </summary>
     internal static partial class LoadRunner
     {
         // Material Editor and other controllers apply card data a frame or more after Reload
@@ -26,12 +21,12 @@ namespace AdvancedLoader
             if (toggles != null && index < toggles.Length && toggles[index] != null) toggles[index].isOn = value;
         }
 
-        private static object TakeMaterialSnapshot(ChaControl chaCtrl, CardData card, LoadOptions options)
+        private static object TakeMaterialSnapshot(ChaControl chaCtrl, CardData card, LoadOptions options, bool always = false)
         {
-            // Needed for accessories, and for Face/Body because Material Editor then replaces all body/head/eye materials
+            // Accessories, and Face/Body (ME replaces body/head/eye materials)
             if (!MaterialEditorPresence.Available) return null;
             var keepsClothes = options.Clothes && options.ClothesParts != ClothesPart.All;
-            if (!(options.MaterialFollowAccessories || options.Face || options.Body || keepsClothes)) return null;
+            if (!always && !(options.MaterialFollowAccessories || options.Face || options.Body || keepsClothes)) return null;
             try
             {
                 return MaterialEditorBridge.Snapshot(chaCtrl, card.Materials);
@@ -69,12 +64,6 @@ namespace AdvancedLoader
             }
         }
 
-        /// <summary>
-        /// Loading Face or Body makes Material Editor take every body, head and eye material change from the card.
-        /// For the groups not ticked under "Material Editor" it is given the character's current changes instead.
-        /// Hair and clothes are not kept: their materials belong to the hair or clothes that came with the load.
-        /// Call before the load; <see cref="StopKeepingCharacterMaterials"/> afterwards.
-        /// </summary>
         private static void KeepUntickedCharacterMaterials(ChaControl chaCtrl, LoadOptions options, object snapshot)
         {
             if (!MaterialEditorPresence.Available || snapshot == null || !(options.Face || options.Body)) return;
@@ -87,16 +76,12 @@ namespace AdvancedLoader
             if (MaterialEditorPresence.Available) MaterialEditorBridge.ClearKeep();
         }
 
-        /// <summary>
-        /// Loading clothes makes Material Editor take the material changes of all eight pieces from the card;
-        /// the pieces that were kept get their previous changes back.
-        /// </summary>
-        private static void KeepUntickedClothesMaterials(ChaControl chaCtrl, LoadOptions options, object snapshot)
+        private static void KeepUntickedClothesMaterials(ChaControl chaCtrl, ClothesPart loaded, object snapshot)
         {
-            if (snapshot == null || options.ClothesParts == ClothesPart.All) return;
+            if (snapshot == null || loaded == ClothesPart.All) return;
             try
             {
-                MaterialEditorBridge.ApplyClothingSlots(chaCtrl, ClothesParts.UntickedSlots(options.ClothesParts).ToDictionary(x => x, x => snapshot), CurrentOutfit(chaCtrl));
+                MaterialEditorBridge.ApplyClothingSlots(chaCtrl, ClothesParts.UntickedSlots(loaded).ToDictionary(x => x, x => snapshot), CurrentOutfit(chaCtrl));
             }
             catch (Exception ex)
             {
@@ -104,9 +89,24 @@ namespace AdvancedLoader
             }
         }
 
-        private static object TakeOverlaySnapshot(ChaControl chaCtrl, LoadOptions options)
+        private static void KeepAllAccessoryMaterials(ChaControl chaCtrl, object snapshot)
         {
-            if (!Dependencies.ClothesOverlays.IsOk || !options.Clothes || options.ClothesParts == ClothesPart.All) return null;
+            if (snapshot == null) return;
+            try
+            {
+                var count = Math.Max(AccessoryData.VanillaSlotCount, chaCtrl.nowCoordinate.accessory.parts.Length);
+                MaterialEditorBridge.ApplyAccessorySlots(chaCtrl, Enumerable.Range(0, count).ToDictionary(x => x, x => snapshot), CurrentOutfit(chaCtrl));
+            }
+            catch (Exception ex)
+            {
+                AdvancedLoaderPlugin.Logger.LogError($"Failed to keep accessory Material Editor data: {ex}");
+            }
+        }
+
+        private static object TakeOverlaySnapshot(ChaControl chaCtrl, LoadOptions options, bool always = false)
+        {
+            if (!Dependencies.ClothesOverlays.IsOk) return null;
+            if (!always && (!options.Clothes || options.ClothesParts == ClothesPart.All)) return null;
             try
             {
                 return ClothesOverlayBridge.TakeSnapshot(chaCtrl);
@@ -118,15 +118,12 @@ namespace AdvancedLoader
             }
         }
 
-        /// <summary>
-        /// Clothes Overlay Mod replaces the overlays of every clothes piece on a load; kept pieces get theirs back.
-        /// </summary>
-        private static void KeepUntickedClothesOverlays(ChaControl chaCtrl, LoadOptions options, object snapshot)
+        private static void KeepUntickedClothesOverlays(ChaControl chaCtrl, ClothesPart loaded, object snapshot)
         {
-            if (snapshot == null) return;
+            if (snapshot == null || loaded == ClothesPart.All) return;
             try
             {
-                ClothesOverlayBridge.Restore(chaCtrl, snapshot, ClothesParts.UntickedSlots(options.ClothesParts));
+                ClothesOverlayBridge.Restore(chaCtrl, snapshot, ClothesParts.UntickedSlots(loaded));
             }
             catch (Exception ex)
             {
@@ -160,11 +157,6 @@ namespace AdvancedLoader
             };
         }
 
-        /// <summary>
-        /// Make every accessory slot carry the Material Editor data of the accessory now in it:
-        /// slots filled from the card get the card's data (renumbered when the accessory moved to another slot),
-        /// kept slots get back what they had before the load.
-        /// </summary>
         private static void FixAccessoryMaterials(ChaControl chaCtrl, CardData card, AccessoryLoadContext context, object snapshot, bool replacedByGame)
         {
             try

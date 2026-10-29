@@ -13,7 +13,6 @@ namespace AdvancedLoader
 {
     internal static partial class LoadRunner
     {
-        /// <summary>Outfit index Material Editor uses for the worn clothes.</summary>
         private static int? CurrentOutfit(ChaControl chaCtrl) => chaCtrl.fileStatus.coordinateType;
 
         public static IEnumerator LoadCharacter(CardData card, LoadOptions options)
@@ -122,7 +121,7 @@ namespace AdvancedLoader
             }
         }
 
-        public static IEnumerator LoadCoordinate(CardData card, LoadOptions options)
+        public static IEnumerator LoadCoordinate(CardData card, LoadOptions options, ChaControl target)
         {
             if (Busy) yield break;
             Busy = true;
@@ -130,9 +129,13 @@ namespace AdvancedLoader
             bool[] previousToggles = null;
             try
             {
-                var chaCtrl = MakerAPI.GetCharacterControl();
-                var materialSnapshot = TakeMaterialSnapshot(chaCtrl, card, options);
-                var overlaySnapshot = TakeOverlaySnapshot(chaCtrl, options);
+                var chaCtrl = target;
+                var inMaker = MakerAPI.InsideAndLoaded;
+                // No load toggles outside maker, so plugins take all clothes and accessories from the card
+                var pluginsLoadAll = !inMaker;
+                var materialSnapshot = TakeMaterialSnapshot(chaCtrl, card, options, pluginsLoadAll);
+                var overlaySnapshot = TakeOverlaySnapshot(chaCtrl, options, pluginsLoadAll);
+                var clothesFromCard = options.Clothes ? options.ClothesParts : ClothesPart.None;
 
                 // The original window has one Load button with Clothes and Accessories toggles
                 var mode = options.Accessories;
@@ -143,7 +146,7 @@ namespace AdvancedLoader
 
                 if (loadClothes || loadAccessories)
                 {
-                    var page = Resources.FindObjectsOfTypeAll<CustomCoordinateFile>().FirstOrDefault(x => x.gameObject.scene.IsValid());
+                    var page = inMaker ? Resources.FindObjectsOfTypeAll<CustomCoordinateFile>().FirstOrDefault(x => x.gameObject.scene.IsValid()) : null;
                     var window = page == null ? null : Traverse.Create(page).Field("fileWindow").GetValue<CustomFileWindow>();
                     if (window != null)
                     {
@@ -162,7 +165,7 @@ namespace AdvancedLoader
                     if (loadClothes) Hooks.Parts = new PartsLoadContext { CoordinateTarget = chaCtrl.nowCoordinate, ClothesParts = options.ClothesParts };
                     try
                     {
-                        LoadCoordinateLikeGame(chaCtrl, card.Path, loadClothes, loadAccessories);
+                        LoadCoordinateLikeGame(chaCtrl, card.Path, loadClothes, loadAccessories, inMaker);
                     }
                     finally
                     {
@@ -173,11 +176,12 @@ namespace AdvancedLoader
 
                 for (var i = 0; i < FramesToWaitForPlugins; i++) yield return null;
 
-                KeepUntickedClothesOverlays(chaCtrl, options, overlaySnapshot);
+                KeepUntickedClothesOverlays(chaCtrl, clothesFromCard, overlaySnapshot);
 
                 if (MaterialEditorPresence.Available)
                 {
-                    if (options.Clothes) KeepUntickedClothesMaterials(chaCtrl, options, materialSnapshot);
+                    if (options.Clothes || pluginsLoadAll) KeepUntickedClothesMaterials(chaCtrl, clothesFromCard, materialSnapshot);
+                    if (pluginsLoadAll && !loadAccessories) KeepAllAccessoryMaterials(chaCtrl, materialSnapshot);
                     ApplyMaterialGroups(chaCtrl, card, options.MaterialGroups & MaterialGroup.Clothes, options.MaterialCleanCopy);
                     if (options.MaterialFollowAccessories && context?.Result != null)
                         FixAccessoryMaterials(chaCtrl, card, context, materialSnapshot, replacedByGame: loadAccessories);
@@ -206,10 +210,6 @@ namespace AdvancedLoader
             }
         }
 
-        /// <summary>
-        /// More Outfit Slots takes all outfit names from the card; kept outfits get their names back,
-        /// loaded outfits get the card outfit's name.
-        /// </summary>
         private static void KeepOutfitNames(ChaControl chaCtrl, CardData card, OutfitLoadContext context, List<string> namesBefore)
         {
             if (!Outfits.CanAddSlots) return;
@@ -242,12 +242,6 @@ namespace AdvancedLoader
             }
         }
 
-        /// <summary>
-        /// Loading clothes makes Material Editor take the clothes and accessory data of every outfit from the card.
-        /// Each outfit gets back what belongs to it now: card data for the pieces and accessories taken from the card
-        /// (renumbered for moved outfits and slots), its previous data for everything else.
-        /// The worn outfit goes through Material Editor's API so the materials are updated; the others are edited in its lists.
-        /// </summary>
         private static void FixOutfitMaterials(ChaControl chaCtrl, CardData card, OutfitLoadContext context, object snapshot)
         {
             if (snapshot == null) return;
@@ -305,10 +299,6 @@ namespace AdvancedLoader
         private static bool IsClothing(KK_Plugins.MaterialEditor.MaterialEditorCharaController.ObjectType type) =>
             type == KK_Plugins.MaterialEditor.MaterialEditorCharaController.ObjectType.Clothing;
 
-        /// <summary>
-        /// Material Editor groups ticked in the window. Clothes come from the card outfit loaded into the worn outfit,
-        /// or the card's first outfit when none is.
-        /// </summary>
         private static void ApplyCharacterMaterialGroups(ChaControl chaCtrl, CardData card, LoadOptions options, OutfitLoadContext context)
         {
             if (options.MaterialGroups == MaterialGroup.None) return;
@@ -324,9 +314,6 @@ namespace AdvancedLoader
             }
         }
 
-        /// <summary>
-        /// Same steps as CustomCharaFile's Load button.
-        /// </summary>
         private static void LoadCharacterLikeGame(ChaControl chaCtrl, string path, bool face, bool body, bool hair, bool parameters, bool coordinate)
         {
 #if KK
@@ -339,10 +326,8 @@ namespace AdvancedLoader
             Singleton<CustomBase>.Instance.updateCustomUI = true;
         }
 
-        /// <summary>
-        /// Same steps as CustomCoordinateFile's Load button.
-        /// </summary>
-        private static void LoadCoordinateLikeGame(ChaControl chaCtrl, string path, bool clothes, bool accessories)
+        // In H the game only changes the worn clothes, the outfit list stays
+        private static void LoadCoordinateLikeGame(ChaControl chaCtrl, string path, bool clothes, bool accessories, bool inMaker)
         {
             var nowCoordinate = chaCtrl.nowCoordinate;
             var keepClothes = clothes ? null : MessagePackSerializer.Serialize(nowCoordinate.clothes);
@@ -353,6 +338,7 @@ namespace AdvancedLoader
             if (keepAccessories != null) nowCoordinate.accessory = MessagePackSerializer.Deserialize<ChaFileAccessory>(keepAccessories);
 
             chaCtrl.Reload(false, true, true, true);
+            if (!inMaker) return;
             chaCtrl.AssignCoordinate((ChaFileDefine.CoordinateType)chaCtrl.chaFile.status.coordinateType);
             Singleton<CustomBase>.Instance.updateCustomUI = true;
         }

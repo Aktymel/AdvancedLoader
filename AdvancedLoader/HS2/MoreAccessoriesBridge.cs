@@ -7,11 +7,7 @@ using UnityEngine;
 
 namespace AdvancedLoader
 {
-    /// <summary>
-    /// Reflection access to MoreAccessories internals, which hold accessory slots 21 and up.
-    /// MoreAccessories keys its data by ChaFile, so slot N (N >= 20) lives at index N - 20 of that character's list.
-    /// Every member is a no-op when MoreAccessories is not installed.
-    /// </summary>
+    // Slot N (N >= 20) is at index N - 20; no-op without MoreAccessories
     internal static class MoreAccessoriesBridge
     {
         public const string GUID = "com.joan6694.illusionplugins.moreaccessories";
@@ -47,9 +43,7 @@ namespace AdvancedLoader
 
         private static IDictionary CharAdditionalData => (IDictionary)Traverse.Create(_instance).Field("_charAdditionalData").GetValue();
 
-        /// <summary>
-        /// MoreAccessories skips reading its card data while this is false (it is false during a load without "Clothes").
-        /// </summary>
+        // MoreAccessories skips its card data while false
         public static bool LoadAdditionalAccessories
         {
             get => !Available || Traverse.Create(_instance).Field("_loadAdditionalAccessories").GetValue<bool>();
@@ -59,9 +53,6 @@ namespace AdvancedLoader
             }
         }
 
-        /// <summary>
-        /// Accessory slots 21+ of the character, or null if there are none.
-        /// </summary>
         public static List<ChaFileAccessory.PartsInfo> GetParts(ChaFile file)
         {
             if (!Available) return null;
@@ -70,9 +61,6 @@ namespace AdvancedLoader
             return Traverse.Create(data[file]).Field("parts").GetValue<List<ChaFileAccessory.PartsInfo>>();
         }
 
-        /// <summary>
-        /// Replace accessory slots 21+ of the character. Spawned objects are destroyed and get recreated by ChaControl.ChangeAccessory.
-        /// </summary>
         public static void SetParts(ChaFile file, List<ChaFileAccessory.PartsInfo> parts)
         {
             if (!Available) return;
@@ -101,9 +89,6 @@ namespace AdvancedLoader
                 objects.Add(Activator.CreateInstance(_accessoryObjectType, true));
         }
 
-        /// <summary>
-        /// Drop MoreAccessories bookkeeping for a temporary ChaFile so it does not linger until the next purge.
-        /// </summary>
         public static void Forget(ChaFile file)
         {
             if (!Available) return;
@@ -112,9 +97,6 @@ namespace AdvancedLoader
             byCoordinate?.Remove(file.coordinate);
         }
 
-        /// <summary>
-        /// Rebuild MoreAccessories slot buttons in maker (slot count may have changed).
-        /// </summary>
         public static void UpdateUI()
         {
             if (!Available) return;

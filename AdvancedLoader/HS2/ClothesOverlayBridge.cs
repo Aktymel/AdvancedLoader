@@ -7,11 +7,7 @@ using MessagePack;
 
 namespace AdvancedLoader
 {
-    /// <summary>
-    /// Keeps clothes overlays (Clothes Overlay Mod, KCOX) of the clothes pieces that were not loaded.
-    /// KCOX replaces the overlays of all eight pieces when clothes are loaded; afterwards the kept pieces
-    /// get their previous overlays back. Only call into this class when <see cref="Dependencies.ClothesOverlays"/> is OK.
-    /// </summary>
+    // Only use when Dependencies.ClothesOverlays is OK
     internal static class ClothesOverlayBridge
     {
         private sealed class Snapshot
@@ -34,9 +30,6 @@ namespace AdvancedLoader
             };
         }
 
-        /// <summary>
-        /// Put the overlays of the given clothes slots (ChaFileDefine.ClothesKind) back from the snapshot and redraw the clothes.
-        /// </summary>
         public static void Restore(ChaControl chaCtrl, object snapshotObject, IEnumerable<int> slots)
         {
             var snapshot = snapshotObject as Snapshot;
@@ -70,10 +63,6 @@ namespace AdvancedLoader
             controller.RefreshAllTextures();
         }
 
-        /// <summary>
-        /// Clothes slot of an overlay key: "ct_clothesBot" is the bottom, "ct_top_parts_A" is part of the top,
-        /// "Colormask_x" belongs to x.
-        /// </summary>
         private static int SlotOf(string key)
         {
             var id = KoiClothesOverlayController.GetRealId(key);

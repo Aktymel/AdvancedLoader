@@ -11,10 +11,6 @@ using ChaCustom;
 
 namespace AdvancedLoader
 {
-    /// <summary>
-    /// The "Advanced load" window. It works with the game's open load panel: the card is the one selected there,
-    /// and the options follow the panel (character options in "Load character", clothes options in "Clothes > Load").
-    /// </summary>
     internal sealed class AdvancedLoadWindow
     {
         private const int WindowId = 0x45434C32;
@@ -43,6 +39,7 @@ namespace AdvancedLoader
         private CardData _card;
         private Rect _rect;
         private bool _placed;
+        private bool _placedInH;
         private Vector2 _scroll;
         // Card slot -> character slot for the current options, refreshed every frame for the preview
         private Dictionary<int, int> _targets = new Dictionary<int, int>();
@@ -61,7 +58,6 @@ namespace AdvancedLoader
             _panels = panels;
         }
 
-        /// <summary>Opened by the user. Only drawn while a game load panel is open.</summary>
         public bool Visible { get; set; }
 
         private bool Shown => Visible && _panels.OpenMode != null;
@@ -92,7 +88,8 @@ namespace AdvancedLoader
             }
             else if (_card == null || _card.Path != path)
             {
-                _card = CardData.Read(path, _mode, (byte)MakerAPI.GetMakerSex());
+                var target = _panels.Target;
+                _card = CardData.Read(path, _mode, target != null ? target.sex : (byte)MakerAPI.GetMakerSex());
 #if KKS || KK
                 _shownOutfit = -1;
                 Options.SelectedOutfits.Clear();
@@ -106,7 +103,7 @@ namespace AdvancedLoader
         private void UpdateTargets()
         {
             var options = Options;
-            var chaCtrl = MakerAPI.GetCharacterControl();
+            var chaCtrl = _panels.Target;
             var occupancyOf = chaCtrl == null ? null : chaCtrl.nowCoordinate;
 #if KKS || KK
             if (chaCtrl != null && _mode == LoadMode.Character && _card != null && _card.CardOutfits.Count > 0)
@@ -151,10 +148,12 @@ namespace AdvancedLoader
         public void OnGUI()
         {
             if (!Shown) return;
-            if (!_placed)
+            // Maker and H each get their own first position
+            if (!_placed || _placedInH != _panels.InFreeH)
             {
                 _rect = NativeLoadPanels.DefaultWindowRect(MinWidth, MaxHeight);
                 _placed = true;
+                _placedInH = _panels.InFreeH;
             }
 
             var skin = GUI.skin;
@@ -191,7 +190,6 @@ namespace AdvancedLoader
             _rect = IMGUIUtils.DragResizeEatWindow(id, _rect);
         }
 
-        /// <summary>Name from the card as the game's list shows it, with the file name for telling cards apart.</summary>
         private string CardTitle()
         {
             var file = System.IO.Path.GetFileNameWithoutExtension(_card.Path);
@@ -376,7 +374,7 @@ namespace AdvancedLoader
         private void DrawPlacement(LoadOptions options)
         {
             options.Placement = (AccessoryPlacement)GUILayout.Toolbar((int)options.Placement, PlacementNames);
-            // Without MoreAccessories there are only 20 slots, so a bigger shift could never fit anything
+            // Only 20 slots without MoreAccessories
             var maxShift = MoreAccessoriesBridge.Available ? 500 : AccessoryData.VanillaSlotCount - 1;
             options.Shift = Mathf.Clamp(options.Shift, 0, maxShift);
             if (options.Placement == AccessoryPlacement.Shift)
@@ -409,9 +407,6 @@ namespace AdvancedLoader
             DrawSlotWarning(options);
         }
 
-        /// <summary>
-        /// Yellow warning when some loaded accessories have no slot to go to (only slots 1-20 exist without MoreAccessories).
-        /// </summary>
         private void DrawSlotWarning(LoadOptions options)
         {
             if (MoreAccessoriesBridge.Available || options.Placement == AccessoryPlacement.SameSlots) return;
@@ -445,9 +440,6 @@ namespace AdvancedLoader
         }
 
 #if KKS || KK
-        /// <summary>
-        /// Which card outfits are loaded and into which of the character's outfits.
-        /// </summary>
         private void DrawOutfits(LoadOptions options)
         {
             BeginSection("Outfits");
@@ -533,9 +525,6 @@ namespace AdvancedLoader
             options.MaterialGroups = isOn ? options.MaterialGroups & ~group : options.MaterialGroups | group;
         }
 
-        /// <summary>
-        /// Other plugins with data on the card. Ticked ones load it, the rest keep the character's current data.
-        /// </summary>
         private void DrawOtherPlugins(LoadOptions options)
         {
             var entries = OtherPlugins.Entries.Where(x => _card.PluginDataIds.Contains(x.Id)).ToList();
@@ -595,7 +584,7 @@ namespace AdvancedLoader
         {
             var card = _card;
             var options = Options;
-            _plugin.StartCoroutine(_mode == LoadMode.Character ? LoadRunner.LoadCharacter(card, options) : LoadRunner.LoadCoordinate(card, options));
+            _plugin.StartCoroutine(_mode == LoadMode.Character ? LoadRunner.LoadCharacter(card, options) : LoadRunner.LoadCoordinate(card, options, _panels.Target));
         }
     }
 }

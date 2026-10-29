@@ -5,14 +5,10 @@ using HarmonyLib;
 
 namespace AdvancedLoader
 {
-    /// <summary>
-    /// Outfits to take from a character card, for a "Load character" with Clothes started from the Advanced Load window.
-    /// </summary>
     internal sealed class OutfitLoadContext
     {
         public ChaFileControl Target;
         public List<CardOutfit> CardOutfits;
-        /// <summary>Card outfit -> character outfit.</summary>
         public Dictionary<int, int> SourceToTarget;
         public ClothesPart ClothesParts = ClothesPart.All;
         public AccessoryMode Accessories;
@@ -20,31 +16,17 @@ namespace AdvancedLoader
         public int Shift;
         public IEnumerable<int> SelectedSlots;
 
-        /// <summary>Every outfit of the character before the load.</summary>
         public List<byte[]> Before;
-        /// <summary>Character outfit -> (character slot -> card slot) for accessories taken from the card.</summary>
         public Dictionary<int, Dictionary<int, int>> AccessoryTargets = new Dictionary<int, Dictionary<int, int>>();
-        /// <summary>Number of outfits after the load.</summary>
         public int FinalCount;
     }
 
-    /// <summary>
-    /// Both maker load flows end with ChaControl.Reload:
-    /// - "Load character" (CustomCharaFile): LoadFileLimited -> ChangeCoordinateType -> Reload
-    /// - "Clothes > Load" (CustomCoordinateFile): nowCoordinate.LoadFile -> (restore clothes or accessories) -> Reload -> AssignCoordinate
-    /// For a character, LoadFileLimited replaces every outfit; right after it the outfit list is rebuilt from the
-    /// character's previous outfits and the card outfits that were chosen. For clothes, the accessory slots of the worn
-    /// outfit are combined right after the file is read and written in Reload.
-    /// </summary>
     internal static class Hooks
     {
         internal static AccessoryLoadContext Active;
         internal static PartsLoadContext Parts;
         internal static OutfitLoadContext Outfits;
 
-        /// <summary>
-        /// Set while the plugin reads a card for the window, so that read is not treated as a load.
-        /// </summary>
         internal static bool ReadingCard;
 
         private static List<ChaFileAccessory.PartsInfo> _before;
@@ -54,6 +36,15 @@ namespace AdvancedLoader
         private static ChaFile _pendingTarget;
         private static List<ChaFileAccessory.PartsInfo> _pendingResult;
         private static ChaFile _pendingOutfitTarget;
+
+        [HarmonyPostfix]
+        [HarmonyPatch(typeof(ChaCustom.clothesFileControl), "Start")]
+        private static void ClothesFileControlStartPostfix(ChaCustom.clothesFileControl __instance)
+        {
+            if (__instance.kindSet != ChaCustom.clothesFileControl.SettingKind.load) return;
+            NativeLoadPanels.FreeHPanel = __instance;
+            NativeLoadPanels.FreeHSceneName = NativeLoadPanels.AddSceneName;
+        }
 
         [HarmonyPrefix]
 #if KK
@@ -78,10 +69,7 @@ namespace AdvancedLoader
                 Outfits.Before = __instance.coordinate.Select(x => x.SaveBytes()).ToList();
         }
 
-        /// <summary>
-        /// Plugins that are not loaded get their previous card data back. First, because in Koikatsu Sunshine KKAPI
-        /// reloads the plugins inside its own postfix; and again last, in case the card data was copied to the character later.
-        /// </summary>
+        // First: KKAPI reloads plugins in its postfix (KK/KKS). Last: data copied later
         [HarmonyPostfix, HarmonyPriority(Priority.First)]
 #if KK
         [HarmonyPatch(typeof(ChaFileControl), nameof(ChaFileControl.LoadFileLimited), typeof(string), typeof(byte), typeof(bool), typeof(bool), typeof(bool), typeof(bool), typeof(bool))]
@@ -137,10 +125,6 @@ namespace AdvancedLoader
             }
         }
 
-        /// <summary>
-        /// Character outfits after the load: card outfits in their target slots (with unticked clothes pieces and
-        /// accessories kept from the outfit that was there), every other outfit as it was before.
-        /// </summary>
         private static void RebuildOutfits(ChaFileControl target, OutfitLoadContext context)
         {
             try
@@ -233,9 +217,6 @@ namespace AdvancedLoader
             }
         }
 
-        /// <summary>
-        /// Combine the snapshot with the card slots and queue the result for Reload.
-        /// </summary>
         private static void PrepareResult(ChaFile target)
         {
             var before = _before;

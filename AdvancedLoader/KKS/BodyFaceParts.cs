@@ -6,7 +6,6 @@ using MessagePack;
 
 namespace AdvancedLoader
 {
-    /// <summary>Body categories of the maker, in maker order.</summary>
     [Flags]
     internal enum BodyPart
     {
@@ -21,12 +20,11 @@ namespace AdvancedLoader
         Underhair = 1 << 7,
         Tan = 1 << 8,
         Paint = 1 << 9,
-        /// <summary>Bonemod bones that are not in any maker category (advanced ABMX window).</summary>
+        // ABMX bones outside maker categories
         OtherBones = 1 << 10,
         All = (1 << 11) - 1
     }
 
-    /// <summary>Face categories of the maker, in maker order.</summary>
     [Flags]
     internal enum FacePart
     {
@@ -42,12 +40,12 @@ namespace AdvancedLoader
         Mouth = 1 << 8,
         Mole = 1 << 9,
         Makeup = 1 << 10,
-        /// <summary>Bonemod bones that are not in any maker category (advanced ABMX window).</summary>
+        // ABMX bones outside maker categories
         OtherBones = 1 << 11,
         All = (1 << 12) - 1
     }
 
-    /// <summary>Clothes pieces of the maker's Clothes category; the bit index is the ChaFileDefine.ClothesKind slot.</summary>
+    // Bit index = ChaFileDefine.ClothesKind
     [Flags]
     internal enum ClothesPart
     {
@@ -64,10 +62,7 @@ namespace AdvancedLoader
         All = (1 << 9) - 1
     }
 
-    /// <summary>
-    /// Clothes pieces work like accessory slots: the game loads all nine, then the pieces that were not ticked
-    /// get the character's previous piece back before Reload.
-    /// </summary>
+    // Unticked pieces get the previous piece back before Reload
     internal static class ClothesParts
     {
         public const int Count = 9;
@@ -80,7 +75,6 @@ namespace AdvancedLoader
         public static string Describe(ClothesPart parts) =>
             string.Join(", ", Enumerable.Range(0, Count).Where(i => (parts & (ClothesPart)(1 << i)) != 0).Select(i => Names[i]).ToArray());
 
-        /// <summary>Slot numbers (ClothesKind) of the pieces that are not ticked.</summary>
         public static IEnumerable<int> UntickedSlots(ClothesPart ticked) => Enumerable.Range(0, Count).Where(i => (ticked & (ClothesPart)(1 << i)) == 0);
 
         public static ChaFileClothes Copy(ChaFileClothes clothes)
@@ -99,22 +93,15 @@ namespace AdvancedLoader
         }
     }
 
-    /// <summary>
-    /// Splits the game's Body and Face data the same way the maker's categories do (which sliders and settings each
-    /// Cvs* menu edits). The game can only load Body or Face as a whole, so after it loaded them the categories
-    /// that were not ticked are put back from the character's previous data, before Reload rebuilds the character.
-    /// Bonemod sliders follow the same categories, see <see cref="AbmxBridge"/>.
-    /// </summary>
+    // The game loads Body/Face whole; unticked categories are put back before Reload
     internal static class BodyFaceParts
     {
         private sealed class Part<T>
         {
             public T Flag;
             public string Name;
-            /// <summary>KKSAPI MakerConstants sub category name, used to sort bonemod sliders into parts.</summary>
             public string[] MakerCategories = new string[0];
             public int[] ShapeIndices;
-            /// <summary>Property names; "baseMakeup.x" is a property of the face's makeup.</summary>
             public string[] Properties;
             public bool BonesOnly;
         }
@@ -171,16 +158,12 @@ namespace AdvancedLoader
         public static string Describe(BodyPart parts) => string.Join(", ", BodyParts.Where(x => (parts & x.Flag) != 0).Select(x => x.Name).ToArray());
         public static string Describe(FacePart parts) => string.Join(", ", FaceParts.Where(x => (parts & x.Flag) != 0).Select(x => x.Name).ToArray());
 
-        /// <summary>Body part for a bonemod slider in the given maker sub category ("tglBreast", "tglLeg"…).</summary>
         public static BodyPart BodyPartForCategory(string subCategory) =>
             BodyParts.FirstOrDefault(x => x.MakerCategories.Contains(subCategory))?.Flag ?? BodyPart.OtherBones;
 
         public static FacePart FacePartForCategory(string subCategory) =>
             FaceParts.FirstOrDefault(x => x.MakerCategories.Contains(subCategory))?.Flag ?? FacePart.OtherBones;
 
-        /// <summary>
-        /// Put the categories that were not ticked back from <paramref name="before"/> into the freshly loaded body.
-        /// </summary>
         public static void RestoreUnticked(ChaFileBody loaded, ChaFileBody before, BodyPart ticked)
         {
             foreach (var part in BodyParts.Where(x => (ticked & x.Flag) == 0))
@@ -228,7 +211,7 @@ namespace AdvancedLoader
                     AdvancedLoaderPlugin.Logger.LogWarning($"{loaded.GetType().Name}.{path} not found, this part is loaded from the card");
                     continue;
                 }
-                // The previous object is no longer used by the character, so its values can be moved over as they are
+                // Old object is unused now
                 property.SetValue(target, property.GetValue(source, null), null);
             }
         }

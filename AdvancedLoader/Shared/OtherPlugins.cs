@@ -15,11 +15,6 @@ using AIChara;
 
 namespace AdvancedLoader
 {
-    /// <summary>
-    /// Card data of other plugins, controlled through KKAPI: every plugin that saves data to the card registers a
-    /// character controller, and a controller with MaintainState keeps its current data instead of reading the card.
-    /// Plugins this window copies by itself (Material Editor, ABMX, clothes overlays...) are not listed here.
-    /// </summary>
     internal static class OtherPlugins
     {
         internal sealed class Entry
@@ -35,8 +30,7 @@ namespace AdvancedLoader
             public readonly Dictionary<MakerLoadToggle, bool> Toggles = new Dictionary<MakerLoadToggle, bool>();
         }
 
-        // Handled by the window's own sections, so their controllers are left alone.
-        // ABMX only when it is new enough to be copied by category; an older one is listed here like any other plugin.
+        // Handled by the window; old ABMX is listed like any plugin
         private static IEnumerable<string> HandledPlugins()
         {
             yield return Dependencies.MaterialEditor.GUID;
@@ -49,7 +43,6 @@ namespace AdvancedLoader
 
         private static List<Entry> _entries;
 
-        /// <summary>All plugins with card data that can be loaded or kept, sorted by name.</summary>
         public static List<Entry> Entries => _entries ?? (_entries = FindEntries());
 
         private static List<Entry> FindEntries()
@@ -79,12 +72,6 @@ namespace AdvancedLoader
             return entries.OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase).ToList();
         }
 
-        /// <summary>
-        /// For a character load: ticked plugins read the card, all others keep their current data.
-        /// Clothes overlays follow the Clothes category. Load toggles in the game's window are turned on so they don't
-        /// stop a ticked plugin. ABMX's are turned off because bonemod is copied by category afterwards, or, with an ABMX
-        /// too old for that, follow its entry in this list.
-        /// </summary>
         public static State Apply(LoadOptions options, CardData card)
         {
             var state = new State();
@@ -104,7 +91,6 @@ namespace AdvancedLoader
             return state;
         }
 
-        /// <summary>Ticked and on the card; a plugin without data on the card would only lose its current data.</summary>
         public static bool Loads(LoadOptions options, CardData card, Entry entry)
         {
             return card.PluginDataIds.Contains(entry.Id) && options.OtherPlugins.TryGetValue(entry.Id, out var load) && load;
@@ -112,16 +98,13 @@ namespace AdvancedLoader
 
         public static bool AnyLoaded(LoadOptions options, CardData card) => Entries.Any(x => Loads(options, card, x));
 
-        /// <summary>
-        /// Current card data of the plugins that are not loaded. Some plugins (e.g. Uncensor Selector) read it straight
-        /// from the character instead of following MaintainState, so it is put back after the game's load.
-        /// </summary>
+        // Some plugins (Uncensor Selector) ignore MaintainState
         public static Dictionary<string, PluginData> KeptData(ChaControl chaCtrl, LoadOptions options, CardData card)
         {
             var kept = new Dictionary<string, PluginData>();
             foreach (var entry in Entries.Where(x => !Loads(options, card, x)))
             {
-                // The character's own copy is only written when a card is saved, so the plugin writes its current state first
+                // Data is only written on save
                 var controller = entry.Registration.Instances.FirstOrDefault(x => x.ChaControl == chaCtrl);
                 if (controller != null && SaveMethod != null)
                 {
@@ -141,10 +124,7 @@ namespace AdvancedLoader
 
         private static readonly MethodInfo SaveMethod = AccessTools.Method(typeof(CharaCustomFunctionController), "OnCardBeingSavedInternal", new[] { typeof(GameMode) });
 
-        /// <summary>
-        /// Put the kept data on the character and on the loaded card's file, which is where plugins read card data from
-        /// in maker (MakerAPI.LastLoadedChaFile).
-        /// </summary>
+        // Plugins read card data in maker from MakerAPI.LastLoadedChaFile
         public static void PutBack(ChaFile chaFile, Dictionary<string, PluginData> kept)
         {
             var loaded = MakerAPI.LastLoadedChaFile;

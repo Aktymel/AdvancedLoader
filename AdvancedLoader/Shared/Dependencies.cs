@@ -10,10 +10,7 @@ namespace AdvancedLoader
         TooOld
     }
 
-    /// <summary>
-    /// An optional plugin this one works with. Its feature is only turned on when the plugin is installed in at least
-    /// the version this plugin was built and tested against, because internals of older versions differ.
-    /// </summary>
+    // Older versions differ inside, so only the tested version or newer
     internal sealed class Dependency
     {
         private bool _checked;
@@ -52,7 +49,6 @@ namespace AdvancedLoader
 
         public bool IsOk => State == DependencyState.Ok;
 
-        /// <summary>Warning shown in the window, or null when the plugin can be used.</summary>
         public string Warning(string consequence)
         {
             switch (State)

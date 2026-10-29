@@ -18,20 +18,14 @@ using AIChara;
 
 namespace AdvancedLoader
 {
-    /// <summary>
-    /// Kept apart from <see cref="MaterialEditorBridge"/> so checking for Material Editor never loads its types.
-    /// </summary>
+    // Separate so the check never loads Material Editor types
     internal static class MaterialEditorPresence
     {
         public const string GUID = "com.deathweasel.bepinex.materialeditor";
 
-        /// <summary>Installed in a version this plugin works with.</summary>
         public static bool Available => Dependencies.MaterialEditor.IsOk;
     }
 
-    /// <summary>
-    /// Material Editor changes of a card or a character, in Material Editor's own save format.
-    /// </summary>
     internal sealed class MaterialEditorData
     {
         public List<MaterialShader> Shaders = new List<MaterialShader>();
@@ -42,20 +36,11 @@ namespace AdvancedLoader
         public List<RendererProperty> Renderers = new List<RendererProperty>();
         public Dictionary<int, byte[]> TextureData = new Dictionary<int, byte[]>();
 
-        /// <summary>
-        /// Snapshot only: the character's own original of everything the card changes (values, textures, shaders, renderers).
-        /// Removing a change resets the property to the original saved with that change, which for a change loaded
-        /// from the card is the card character's value, not this character's.
-        /// </summary>
+        // Character's own originals; ME would reset to the card character's
         public Dictionary<string, object> OriginalValues = new Dictionary<string, object>();
     }
 
-    /// <summary>
-    /// Reads Material Editor data from cards and copies it onto the maker character through Material Editor's public API,
-    /// so Material Editor's own UI, saving and "changed" markers stay correct.
-    /// Only call into this class when <see cref="MaterialEditorPresence.Available"/> is true.
-    /// Not copied yet: material copies (duplicated materials), material renames and projectors.
-    /// </summary>
+    // Only use when MaterialEditorPresence.Available
     internal static class MaterialEditorBridge
     {
         private const string ShaderListKey = "MaterialShaderList";
@@ -104,10 +89,6 @@ namespace AdvancedLoader
             return MessagePackSerializer.Deserialize<List<T>>(bytes) ?? new List<T>();
         }
 
-        /// <summary>
-        /// Copy of the character's current Material Editor changes, so they can be put back after a load replaced them.
-        /// </summary>
-        /// <param name="card">Material Editor data of the card about to be loaded, to remember the original values it changes.</param>
         public static object Snapshot(ChaControl chaCtrl, object card)
         {
             var controller = GetController(chaCtrl);
@@ -171,7 +152,7 @@ namespace AdvancedLoader
                 if (snapshot.OriginalValues.ContainsKey(key + TextureSuffix) || snapshot.OriginalValues.ContainsKey(key + OffsetSuffix) || snapshot.OriginalValues.ContainsKey(key + ScaleSuffix)) continue;
                 if (!TryFindMaterial(controller, entry.ObjectType, entry.Slot, entry.MaterialName, out _, out var material) || !material.HasProperty("_" + entry.Property)) continue;
                 var own = snapshot.Textures.FirstOrDefault(x => PropertyKey(x.ObjectType, x.Slot, x.MaterialName, x.Property) == key && IsCurrentOutfit(controller, x.ObjectType, x.CoordinateIndex));
-                // Material Editor keeps no original texture, so the one on the material now is it (or the character's own replacement, which is put back anyway)
+                // ME keeps no original texture; the current one is it
                 snapshot.OriginalValues[key + TextureSuffix] = material.GetTexture("_" + entry.Property);
                 snapshot.OriginalValues[key + OffsetSuffix] = own?.OffsetOriginal ?? material.GetTextureOffset("_" + entry.Property);
                 snapshot.OriginalValues[key + ScaleSuffix] = own?.ScaleOriginal ?? material.GetTextureScale("_" + entry.Property);
@@ -208,7 +189,6 @@ namespace AdvancedLoader
 
         private static string RendererKey(ObjectType type, int slot, string renderer, MaterialAPI.RendererProperties property) => $"{(int)type}/{slot}/{renderer}/#renderer{(int)property}";
 
-        /// <summary>Renderer value in the same text form Material Editor saves as the original.</summary>
         private static string RendererValue(Renderer renderer, MaterialAPI.RendererProperties property)
         {
             switch (property)
@@ -228,10 +208,6 @@ namespace AdvancedLoader
 
         private static MaterialEditorCharaController GetController(ChaControl chaCtrl) => chaCtrl == null ? null : chaCtrl.GetComponent<MaterialEditorCharaController>();
 
-        /// <summary>
-        /// Copy body, head, eye, hair or clothes material changes from the card.
-        /// </summary>
-        /// <param name="sourceCoordinate">Outfit of the source to take clothes from, or null when it has a single outfit.</param>
         public static void ApplyGroups(ChaControl chaCtrl, object source, MaterialGroup groups, bool clean, int? sourceCoordinate = null)
         {
             if (groups == MaterialGroup.None) return;
@@ -262,16 +238,9 @@ namespace AdvancedLoader
                 clean, sourceCoordinate);
         }
 
-        /// <summary>
-        /// Give each accessory slot the Material Editor changes from its source (the card, or the snapshot taken before the load).
-        /// Always clean per slot, because leftovers from the accessory that was in the slot before are the problem being fixed.
-        /// </summary>
         public static void ApplyAccessorySlots(ChaControl chaCtrl, IDictionary<int, object> sourcePerSlot, int? sourceCoordinate = null) =>
             ApplySlots(chaCtrl, ObjectType.Accessory, sourcePerSlot, sourceCoordinate);
 
-        /// <summary>
-        /// Same for clothes pieces (slot = ChaFileDefine.ClothesKind): pieces that were kept get their previous data back.
-        /// </summary>
         public static void ApplyClothingSlots(ChaControl chaCtrl, IDictionary<int, object> sourcePerSlot, int? sourceCoordinate = null) =>
             ApplySlots(chaCtrl, ObjectType.Clothing, sourcePerSlot, sourceCoordinate);
 
@@ -290,13 +259,7 @@ namespace AdvancedLoader
             }
         }
 
-        /// <summary>
-        /// Copy the clothes and accessory changes of one outfit into an outfit slot that is not worn now.
-        /// Material Editor's API only works on the worn outfit, so its lists are edited directly; the changes are applied
-        /// by Material Editor when that outfit is put on.
-        /// </summary>
-        /// <param name="sourceCoordinate">Outfit index in the source, or null when the source has a single outfit (clothes card).</param>
-        /// <param name="include">Which clothes/accessory slots to copy (all when null); other slots of the target are left alone.</param>
+        // ME API only works on the worn outfit, so lists are edited directly
         public static void CopyOutfit(ChaControl chaCtrl, object sourceObject, int? sourceCoordinate, int targetCoordinate, Func<ObjectType, int, bool> include = null)
         {
             var controller = GetController(chaCtrl);
@@ -326,7 +289,7 @@ namespace AdvancedLoader
             Replace(ColorListKey, source.Colors, x => x.ObjectType, x => x.Slot, x => x.CoordinateIndex, (x, c) => x.CoordinateIndex = c);
             Replace(KeywordListKey, source.Keywords, x => x.ObjectType, x => x.Slot, x => x.CoordinateIndex, (x, c) => x.CoordinateIndex = c);
             Replace(RendererListKey, source.Renderers, x => x.ObjectType, x => x.Slot, x => x.CoordinateIndex, (x, c) => x.CoordinateIndex = c);
-            // Texture ids point into the source's texture list; register the bytes with this character to get its id
+            // Texture ids are per character
             Replace(TextureListKey, source.Textures, x => x.ObjectType, x => x.Slot, x => x.CoordinateIndex, (x, c) => x.CoordinateIndex = c, x =>
             {
                 if (!x.TexID.HasValue) return;
@@ -345,12 +308,7 @@ namespace AdvancedLoader
 
         private static KeepContext _keep;
 
-        /// <summary>
-        /// For the next Face/Body load of this character: Material Editor takes the body, head and eye changes of
-        /// <paramref name="groups"/> from the snapshot instead of the card. They are swapped in right after Material Editor
-        /// read the card and before it applies anything, so it puts them on the materials itself, also on materials that
-        /// were recreated during the load (e.g. by Uncensor Selector).
-        /// </summary>
+        // Swapped in after ME reads the card, before it applies anything
         public static void KeepCharacterGroupsOnLoad(ChaControl chaCtrl, object snapshot, MaterialGroup groups)
         {
             _keep = new KeepContext { Target = chaCtrl, Snapshot = snapshot as MaterialEditorData ?? new MaterialEditorData(), Groups = groups };
@@ -405,7 +363,7 @@ namespace AdvancedLoader
                 Swap(ColorListKey, source.Colors, x => x.ObjectType, x => x.MaterialName, characterGroups);
                 Swap(KeywordListKey, source.Keywords, x => x.ObjectType, x => x.MaterialName, characterGroups);
                 Swap(RendererListKey, source.Renderers, x => x.ObjectType, x => x.RendererName, rendererGroups);
-                // Material Editor may have dropped the character's old textures while reading the card, so they are registered again
+                // ME may have dropped the old textures
                 Swap(TextureListKey, source.Textures, x => x.ObjectType, x => x.MaterialName, characterGroups, x =>
                 {
                     if (!x.TexID.HasValue) return;
@@ -420,9 +378,6 @@ namespace AdvancedLoader
             }
         }
 
-        /// <summary>
-        /// The accessory entries of one card slot, renumbered to the character slot the accessory is loaded into.
-        /// </summary>
         public static object RemapAccessorySlot(object data, int fromSlot, int toSlot)
         {
             var source = data as MaterialEditorData ?? new MaterialEditorData();
@@ -445,16 +400,11 @@ namespace AdvancedLoader
             return result;
         }
 
-        /// <summary>
-        /// Clothes and accessories have their data per outfit (CoordinateIndex); everything else uses index 0.
-        /// </summary>
         private static bool PerOutfit(ObjectType type) => type == ObjectType.Clothing || type == ObjectType.Accessory;
 
-        /// <summary>Source entry belongs to the outfit being copied (null: the source has only one outfit, e.g. a clothes card).</summary>
         private static bool FromCoordinate(ObjectType type, int coordinateIndex, int? sourceCoordinate) =>
             !sourceCoordinate.HasValue || !PerOutfit(type) || coordinateIndex == sourceCoordinate.Value;
 
-        /// <summary>Character entry belongs to the outfit that is worn now, the only one the Set/Remove API works on.</summary>
         private static bool IsCurrentOutfit(MaterialEditorCharaController controller, ObjectType type, int coordinateIndex) =>
             !PerOutfit(type) || coordinateIndex == controller.CurrentCoordinateIndex;
 
@@ -505,11 +455,6 @@ namespace AdvancedLoader
             }
         }
 
-        /// <summary>
-        /// Undo every Material Editor change in the filtered group: the original values are put back on the materials
-        /// and the entries are dropped, so nothing from an earlier edit survives the copy.
-        /// </summary>
-        /// <param name="originalValues">Originals to reset to instead of the ones saved with the changes (see <see cref="MaterialEditorData.OriginalValues"/>).</param>
         private static void RemoveCurrent(MaterialEditorCharaController controller,
             Func<ObjectType, int, string, bool> materialFilter, Func<ObjectType, int, string, bool> rendererFilter, Dictionary<string, object> originalValues)
         {
@@ -556,8 +501,7 @@ namespace AdvancedLoader
                     if (entry.TexID.HasValue)
                     {
                         controller.RemoveMaterialTexture(entry.Slot, entry.ObjectType, material, entry.Property, go, false);
-                        // Material Editor leaves a removed texture on the material until the character is reloaded
-                        // Skipped when the old texture was destroyed together with the old object
+                        // ME leaves a removed texture until reload; skip destroyed ones
                         if (originalValues.TryGetValue(key + TextureSuffix, out var texture) && (texture == null || (Texture)texture != null))
                             material.SetTexture("_" + entry.Property, (Texture)texture);
                     }
@@ -625,10 +569,6 @@ namespace AdvancedLoader
         // Same as Material Editor's NameFormatted extension
         private static string FormatName(string name) => name == null ? "" : name.Replace("(Instance)", "").Replace(" Instance", "").Trim();
 
-        /// <summary>
-        /// Body, head or eyes for every material and renderer of the character itself (not hair, clothes or accessories),
-        /// decided by where the renderer sits in the character's hierarchy.
-        /// </summary>
         private static Dictionary<string, MaterialGroup> CollectCharacterGroups(ChaControl chaCtrl, out Dictionary<string, MaterialGroup> rendererGroups)
         {
             var materialGroups = new Dictionary<string, MaterialGroup>();
@@ -661,9 +601,6 @@ namespace AdvancedLoader
             return materialGroups;
         }
 
-        /// <summary>
-        /// Fallback for materials that are on the card but not on the current character.
-        /// </summary>
         private static MaterialGroup GuessCharacterGroup(string name)
         {
             var lower = name.ToLowerInvariant();

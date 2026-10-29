@@ -9,10 +9,6 @@ using AIChara;
 
 namespace AdvancedLoader
 {
-    /// <summary>
-    /// A character's full accessory slot list: 20 vanilla slots followed by MoreAccessories slots.
-    /// Reading and writing the slots and cards is game specific (AccessoryData.Game.cs in each game folder).
-    /// </summary>
     internal static partial class AccessoryData
     {
         public const int VanillaSlotCount = 20;
@@ -31,10 +27,6 @@ namespace AdvancedLoader
             return copy;
         }
 
-        /// <summary>
-        /// Target character slot for each card slot that gets loaded. Slots that cannot exist
-        /// (21 and up without MoreAccessories) are left out.
-        /// </summary>
         public static Dictionary<int, int> MapTargets(AccessoryPlacement placement, int shift, IList<bool> occupied, IEnumerable<int> sourceSlots)
         {
             var map = new Dictionary<int, int>();
@@ -63,9 +55,6 @@ namespace AdvancedLoader
             return map;
         }
 
-        /// <summary>
-        /// Card slots that a load takes: every non-empty one for "All", the ticked ones for "Selected".
-        /// </summary>
         public static IEnumerable<int> SourceSlots(AccessoryMode mode, List<ChaFileAccessory.PartsInfo> card, IEnumerable<int> selectedSlots)
         {
             switch (mode)
@@ -79,11 +68,6 @@ namespace AdvancedLoader
             }
         }
 
-        /// <summary>
-        /// Final accessory slots for a load. "All" into the same slots replaces everything with the card's accessories;
-        /// every other combination keeps the current accessories and writes the loaded ones into their target slots.
-        /// </summary>
-        /// <param name="targetToSource">Which card slot ended up in which character slot.</param>
         public static List<ChaFileAccessory.PartsInfo> Combine(AccessoryMode mode, AccessoryPlacement placement, int shift,
             List<ChaFileAccessory.PartsInfo> current, List<ChaFileAccessory.PartsInfo> card, IEnumerable<int> selectedSlots,
             out Dictionary<int, int> targetToSource)
