@@ -27,7 +27,24 @@ namespace AdvancedLoader
     internal static class AbmxBridge
     {
         private static readonly MethodInfo ReadModifiersMethod = AccessTools.Method(typeof(BoneController), "ReadModifiers");
+        private static readonly MethodInfo SaveModifiersMethod = AccessTools.Method(typeof(BoneController), "SaveModifiers");
         private static Dictionary<string, string> _boneCategories;
+
+        public const string DataId = KKABMX_Core.ExtDataGUID;
+
+        // Card data for ABMX with the character's own body and face bones: ABMX would put the card's on the bones for a few frames,
+        // and joints the game doesn't recalculate keep that scale. Ticked parts are taken from the card afterwards (Apply)
+        public static PluginData KeepBodyBones(ChaControl chaCtrl, PluginData cardData)
+        {
+            var controller = chaCtrl == null ? null : chaCtrl.GetComponent<BoneController>();
+            if (controller == null || ReadModifiersMethod == null || SaveModifiersMethod == null) return cardData;
+            var card = ReadModifiersMethod.Invoke(null, new object[] { cardData }) as List<BoneModifier> ?? new List<BoneModifier>();
+            var merged = controller.GetAllModifiers().Where(IsBodyBone).Select(x => x.Clone())
+                .Concat(card.Where(x => !IsBodyBone(x)).Select(x => x.Clone()))
+                .ToList();
+            Diag.Log($"Bonemod for the load: {merged.Count(IsBodyBone)} body bones of the character, {merged.Count(x => !IsBodyBone(x))} accessory bones of the card");
+            return SaveModifiersMethod.Invoke(null, new object[] { merged, false }) as PluginData;
+        }
 
         public static object ReadFromCard(ChaFile file)
         {
@@ -59,6 +76,7 @@ namespace AdvancedLoader
             var names = new HashSet<string>(card.Select(x => x.BoneName));
             names.UnionWith(before.Select(x => x.BoneName));
             names.UnionWith(controller.GetAllModifiers().Where(IsBodyBone).Select(x => x.BoneName));
+            Diag.Log($"Bonemod apply: face={face} ({faceParts}) body={body} ({bodyParts}); card {card.Count}, before {before.Count}, now {controller.GetAllModifiers().Count(IsBodyBone)} body bones");
 
             foreach (var name in names)
             {
@@ -72,6 +90,8 @@ namespace AdvancedLoader
 
                 var source = (fromCard ? card : before).FirstOrDefault(x => x.BoneName == name);
                 var current = controller.GetAllModifiers().FirstOrDefault(x => x.BoneName == name && IsBodyBone(x));
+                if (!Same(source, current))
+                    Diag.Log($"  {name} ({(isHead ? "head" : "body")}, {category ?? "no category"}, {current?.BoneLocation}): now {Describe(current)} -> {(fromCard ? "card" : "before")} {Describe(source)}");
 
                 if (source == null || source.IsEmpty())
                 {
@@ -88,6 +108,23 @@ namespace AdvancedLoader
             }
 
             controller.NeedsFullRefresh = true;
+        }
+
+        private static string Describe(BoneModifier modifier)
+        {
+            if (modifier == null || modifier.IsEmpty()) return "none";
+            var data = modifier.CoordinateModifiers.FirstOrDefault();
+            return data == null ? "empty" : $"scale {data.ScaleModifier} len {data.LengthModifier} pos {data.PositionModifier}";
+        }
+
+        private static bool Same(BoneModifier a, BoneModifier b) => Describe(a) == Describe(b);
+
+        // For the diagnostic log: body bonemod as it is now
+        public static string DescribeAll(ChaControl chaCtrl)
+        {
+            var controller = chaCtrl.GetComponent<BoneController>();
+            if (controller == null) return "no controller";
+            return string.Join("; ", controller.GetAllModifiers().Where(x => IsBodyBone(x) && !x.IsEmpty()).Select(x => $"{x.BoneName}={Describe(x)}").ToArray());
         }
 
         private static Dictionary<string, string> GetBoneCategories()

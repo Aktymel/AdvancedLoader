@@ -61,7 +61,7 @@ namespace AdvancedLoader
             if (limited == null || limited.Target != __instance) return true;
             // LoadFileLimited reads the card with LoadCharaFile into its own ChaFileControl
             Limited = null;
-            LimitedCardData.Begin(__instance);
+            LimitedCardData.Begin(__instance, limited.Character);
             try
             {
 #if KK

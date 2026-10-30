@@ -31,7 +31,7 @@ namespace AdvancedLoader
     {
         public const string GUID = "com.aktymel.advancedloader";
         public const string PluginName = "Advanced Loader";
-        public const string Version = "1.4.1";
+        public const string Version = "1.4.2";
 
         internal static AdvancedLoaderPlugin Instance;
         internal static new ManualLogSource Logger;

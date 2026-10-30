@@ -37,6 +37,9 @@ namespace AdvancedLoader
                 var materialSnapshot = MaterialEditorPresence.Available && (inStudio || loadOutfits || options.Face || options.Body) ? TakeMaterialSnapshot(chaCtrl, card) : null;
                 var overlaySnapshot = loadOutfits && Dependencies.ClothesOverlays.IsOk ? ClothesOverlayBridge.TakeSnapshot(chaCtrl) : null;
                 var bonemodSnapshot = TakeBonemodSnapshot(chaCtrl, options, inStudio);
+                Diag.Log($"Character load {System.IO.Path.GetFileName(card.Path)}: studio={inStudio} face={options.Face} body={options.Body} hair={options.Hair} clothes={options.Clothes} " +
+                         $"accessories={options.Accessories}; height {chaCtrl.chaFile.custom.body.shapeValueBody[0]}, bonemod snapshot {(bonemodSnapshot == null ? "none" : "taken")}");
+                if (AbmxPresence.Available) Diag.Log($"Bonemod before: {AbmxBridge.DescribeAll(chaCtrl)}");
                 var outfitNames = loadOutfits ? Enumerable.Range(0, chaCtrl.chaFile.coordinate.Length).Select(i => Outfits.GetName(chaCtrl, i)).ToList() : null;
 
                 var anyNative = options.Face || options.Body || options.Hair || options.Parameters || loadOutfits || OtherPlugins.AnyLoaded(options, card);
@@ -52,7 +55,7 @@ namespace AdvancedLoader
                         // The game's Change keeps bones, FK and hair bones right; only its card read becomes a limited load
                         Hooks.Limited = new LimitedLoadContext
                         {
-                            Target = chaCtrl.chaFile, Sex = chaCtrl.sex, Face = options.Face, Body = options.Body, Hair = options.Hair,
+                            Target = chaCtrl.chaFile, Character = chaCtrl, Sex = chaCtrl.sex, Face = options.Face, Body = options.Body, Hair = options.Hair,
                             Parameter = parameters, Coordinate = loadOutfits
                         };
                         load = () => studioCharacter.ChangeChara(card.Path);
@@ -122,7 +125,16 @@ namespace AdvancedLoader
                     if (overlaySnapshot != null && options.Clothes) RebuildOutfitOverlays(chaCtrl, outfitContext, overlaySnapshot);
                 }
 
+                Diag.Log($"After {FramesToWaitForPlugins} frames: height {chaCtrl.chaFile.custom.body.shapeValueBody[0]}");
+                if (AbmxPresence.Available) Diag.Log($"Bonemod loaded: {AbmxBridge.DescribeAll(chaCtrl)}");
                 if (bonemodSnapshot != null) ApplyBonemod(chaCtrl, card, options, bonemodSnapshot, inStudio);
+                if (AbmxPresence.Available) Diag.Log($"Bonemod restored: {AbmxBridge.DescribeAll(chaCtrl)}");
+#if DEBUG
+                // Something applying later would show up here
+                for (var i = 0; i < 60; i++) yield return null;
+                Diag.Log($"60 frames later: height {chaCtrl.chaFile.custom.body.shapeValueBody[0]}");
+                if (AbmxPresence.Available) Diag.Log($"Bonemod 60 frames later: {AbmxBridge.DescribeAll(chaCtrl)}");
+#endif
 
                 if (MaterialEditorPresence.Available)
                 {

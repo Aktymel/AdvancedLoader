@@ -49,7 +49,7 @@ namespace AdvancedLoader
                         // The game's Change keeps bones, FK and hair bones right; only its card read becomes a limited load
                         Hooks.Limited = new LimitedLoadContext
                         {
-                            Target = chaCtrl.chaFile, Sex = chaCtrl.sex, Face = options.Face, Body = options.Body, Hair = options.Hair,
+                            Target = chaCtrl.chaFile, Character = chaCtrl, Sex = chaCtrl.sex, Face = options.Face, Body = options.Body, Hair = options.Hair,
                             Parameter = options.Parameters, Coordinate = options.Clothes
                         };
                         load = () => studioCharacter.ChangeChara(card.Path);

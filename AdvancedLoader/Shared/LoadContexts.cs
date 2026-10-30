@@ -34,6 +34,7 @@ namespace AdvancedLoader
     internal sealed class LimitedLoadContext
     {
         public ChaFileControl Target;
+        public ChaControl Character;
         public byte Sex;
         public bool Face;
         public bool Body;
