@@ -15,7 +15,7 @@ namespace AdvancedLoader
     {
         private static int? CurrentOutfit(ChaControl chaCtrl) => 0;
 
-        public static IEnumerator LoadCharacter(CardData card, LoadOptions options)
+        public static IEnumerator LoadCharacter(CardData card, LoadOptions options, ChaControl target)
         {
             if (Busy) yield break;
             Busy = true;
@@ -24,10 +24,15 @@ namespace AdvancedLoader
             OtherPlugins.State otherPlugins = null;
             try
             {
-                var chaCtrl = MakerAPI.GetCharacterControl();
-                var materialSnapshot = TakeMaterialSnapshot(chaCtrl, card, options);
+                var chaCtrl = target;
+                // Studio's Change has no load flags: plugins take everything from the card, so what was not loaded is put back afterwards
+                var studioCharacter = MakerAPI.InsideAndLoaded ? null : StudioCharaPanel.CharacterOf(chaCtrl);
+                var inStudio = studioCharacter != null;
+                if (chaCtrl == null || (!MakerAPI.InsideAndLoaded && !inStudio)) yield break;
+
+                var materialSnapshot = TakeMaterialSnapshot(chaCtrl, card, options, inStudio);
                 var overlaySnapshot = TakeOverlaySnapshot(chaCtrl, options);
-                var bonemodSnapshot = TakeBonemodSnapshot(chaCtrl, options);
+                var bonemodSnapshot = TakeBonemodSnapshot(chaCtrl, options, inStudio);
 
                 // The game's "Clothes" flag loads clothes and all accessories together; everything else goes through the hook
                 var accessoryMode = options.Accessories;
@@ -38,32 +43,53 @@ namespace AdvancedLoader
 
                 if (anyNative || needsHook)
                 {
-                    var charaLoad = UnityEngine.Object.FindObjectOfType<CvsO_CharaLoad>();
-                    if (charaLoad == null)
+                    Action load;
+                    if (inStudio)
                     {
-                        AdvancedLoaderPlugin.Logger.LogMessage("Open \"Load character\" in maker once, then try again");
-                        yield break;
+                        // The game's Change keeps bones, FK and hair bones right; only its card read becomes a limited load
+                        Hooks.Limited = new LimitedLoadContext
+                        {
+                            Target = chaCtrl.chaFile, Sex = chaCtrl.sex, Face = options.Face, Body = options.Body, Hair = options.Hair,
+                            Parameter = options.Parameters, Coordinate = options.Clothes
+                        };
+                        load = () => studioCharacter.ChangeChara(card.Path);
                     }
-                    var window = Traverse.Create(charaLoad).Field("charaLoadWin").GetValue<CustomCharaWindow>();
+                    else
+                    {
+                        var charaLoad = UnityEngine.Object.FindObjectOfType<CvsO_CharaLoad>();
+                        if (charaLoad == null)
+                        {
+                            AdvancedLoaderPlugin.Logger.LogMessage("Open \"Load character\" in maker once, then try again");
+                            yield break;
+                        }
+                        var window = Traverse.Create(charaLoad).Field("charaLoadWin").GetValue<CustomCharaWindow>();
 
-                    // HS2API and Material Editor read the load flags from the original window's toggles
-                    toggles = Traverse.Create(window).Field("tglLoadOption").GetValue<Toggle[]>();
-                    previousToggles = toggles?.Select(x => x != null && x.isOn).ToArray();
-                    SetToggle(toggles, 0, options.Face);
-                    SetToggle(toggles, 1, options.Body);
-                    SetToggle(toggles, 2, options.Hair);
-                    SetToggle(toggles, 3, options.Clothes);
-                    SetToggle(toggles, 4, options.Parameters);
+                        // HS2API and Material Editor read the load flags from the original window's toggles
+                        toggles = Traverse.Create(window).Field("tglLoadOption").GetValue<Toggle[]>();
+                        previousToggles = toggles?.Select(x => x != null && x.isOn).ToArray();
+                        SetToggle(toggles, 0, options.Face);
+                        SetToggle(toggles, 1, options.Body);
+                        SetToggle(toggles, 2, options.Hair);
+                        SetToggle(toggles, 3, options.Clothes);
+                        SetToggle(toggles, 4, options.Parameters);
+
+                        var flags = (options.Face ? 1 : 0) | (options.Body ? 2 : 0) | (options.Hair ? 4 : 0) | (options.Clothes ? 8 : 0) | (options.Parameters ? 0x10 : 0);
+                        load = () =>
+                        {
+                            var info = new CustomCharaFileInfo { FullPath = card.Path, FileName = System.IO.Path.GetFileName(card.Path) };
+                            if (window.onClick03 != null) window.onClick03(info, flags);
+                            else LoadCharacterLikeGame(card.Path, options);
+                        };
+                    }
                     otherPlugins = OtherPlugins.Apply(options, card);
 
-                    var flags = (options.Face ? 1 : 0) | (options.Body ? 2 : 0) | (options.Hair ? 4 : 0) | (options.Clothes ? 8 : 0) | (options.Parameters ? 0x10 : 0);
                     if (needsHook)
                     {
                         context = NewContext(chaCtrl, card, options);
                         Hooks.Active = context;
                     }
 
-                    KeepUntickedCharacterMaterials(chaCtrl, options, materialSnapshot);
+                    KeepUntickedCharacterMaterials(chaCtrl, options, materialSnapshot, inStudio);
                     Hooks.Parts = new PartsLoadContext
                     {
                         Target = chaCtrl.chaFile, BodyParts = options.BodyParts, FaceParts = options.FaceParts, ClothesParts = options.ClothesParts,
@@ -71,14 +97,13 @@ namespace AdvancedLoader
                     };
                     try
                     {
-                        var info = new CustomCharaFileInfo { FullPath = card.Path, FileName = System.IO.Path.GetFileName(card.Path) };
-                        if (window.onClick03 != null) window.onClick03(info, flags);
-                        else LoadCharacterLikeGame(card.Path, options);
+                        load();
                     }
                     finally
                     {
                         Hooks.Active = null;
                         Hooks.Parts = null;
+                        Hooks.Limited = null;
                     }
                 }
 
@@ -86,15 +111,17 @@ namespace AdvancedLoader
 
                 KeepUntickedClothesOverlays(chaCtrl, options.ClothesParts, overlaySnapshot);
 
-                if (bonemodSnapshot != null) ApplyBonemod(chaCtrl, card, options, bonemodSnapshot);
+                if (bonemodSnapshot != null) ApplyBonemod(chaCtrl, card, options, bonemodSnapshot, inStudio);
 
                 if (MaterialEditorPresence.Available)
                 {
-                    if (options.Clothes) KeepUntickedClothesMaterials(chaCtrl, options.ClothesParts, materialSnapshot);
+                    if (inStudio) KeepUnloadedPartMaterials(chaCtrl, options, materialSnapshot);
+                    else if (options.Clothes) KeepUntickedClothesMaterials(chaCtrl, options.ClothesParts, materialSnapshot);
+                    KeepHeadMaterialsOnNewHead(chaCtrl, options, materialSnapshot);
                     ApplyMaterialGroups(chaCtrl, card, options.MaterialGroups, options.MaterialCleanCopy);
-                    // With "Clothes" the game (and Material Editor) replaced every accessory slot
+                    // With "Clothes" the game (and Material Editor) replaced every accessory slot, in Studio always
                     if (options.MaterialFollowAccessories && context?.Result != null)
-                        FixAccessoryMaterials(chaCtrl, card, context, materialSnapshot, replacedByGame: options.Clothes);
+                        FixAccessoryMaterials(chaCtrl, card, context, materialSnapshot, replacedByGame: options.Clothes || inStudio);
                 }
 
                 AdvancedLoaderPlugin.Logger.LogMessage($"Loaded {System.IO.Path.GetFileName(card.Path)}");
@@ -204,7 +231,7 @@ namespace AdvancedLoader
             customBase.forceUpdateAcsList = true;
         }
 
-        // In H the game only changes the worn clothes and refreshes its clothes buttons
+        // In H the game only changes the worn clothes and refreshes its clothes buttons; Studio also stores them in the character
         private static void LoadCoordinateInH(ChaControl chaCtrl, string path, int button)
         {
             var keepAccessories = button == 1 ? MessagePack.MessagePackSerializer.Serialize(chaCtrl.nowCoordinate.accessory) : null;
@@ -215,8 +242,27 @@ namespace AdvancedLoader
             if (keepClothes != null) chaCtrl.nowCoordinate.clothes = MessagePack.MessagePackSerializer.Deserialize<ChaFileClothes>(keepClothes);
             chaCtrl.Reload(false, true, true, true);
 
+            var studioCharacter = StudioOutfitPanel.CharacterOf(chaCtrl);
+            if (studioCharacter != null)
+            {
+                chaCtrl.AssignCoordinate();
+                FinishStudioClothes(studioCharacter);
+                return;
+            }
             var panel = NativeLoadPanels.FreeHPanel;
             if (panel != null) Traverse.Create(panel).Field("hSceneSpriteCloth").Method("SetClothCharacter").GetValue();
+        }
+
+        // Same as OCICharFemale.LoadClothesFile after loading: bust and skirt FK follow the new clothes
+        private static void FinishStudioClothes(Studio.OCIChar character)
+        {
+            if (!(character is Studio.OCICharFemale)) return;
+            character.charInfo.UpdateBustSoftnessAndGravity();
+            var skirtActive = character.oiCharInfo.activeFK[6];
+            character.ActiveFK(Studio.OIBoneInfo.BoneGroup.Skirt, false, character.oiCharInfo.enableFK);
+            character.fkCtrl.ResetUsedBone(character);
+            character.skirtDynamic = Studio.AddObjectFemale.GetSkirtDynamic(character.charInfo.objClothes);
+            character.ActiveFK(Studio.OIBoneInfo.BoneGroup.Skirt, skirtActive, character.oiCharInfo.enableFK);
         }
 
         private static void LoadCoordinateLikeGame(ChaControl chaCtrl, string path, int button)

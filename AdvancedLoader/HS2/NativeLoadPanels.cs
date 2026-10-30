@@ -27,11 +27,15 @@ namespace AdvancedLoader
 
         // Outfit list of the H scene, set by Hooks when it starts
         public static HSceneSpriteCoordinatesCard FreeHPanel;
-        public static bool FreeHPanelExists => FreeHPanel != null;
+        public static bool OutsideMakerPanelExists => FreeHPanel != null || StudioOutfitPanel.Exists || StudioCharaPanel.Exists;
 
         public ChaControl Target { get; private set; }
 
-        public bool InFreeH => !MakerAPI.InsideAndLoaded && OpenMode != null;
+        public bool InStudio { get; private set; }
+
+        public bool InFreeH => !MakerAPI.InsideAndLoaded && OpenMode != null && !InStudio;
+
+        public string Location => InStudio ? (OpenMode == LoadMode.Character ? "studio chara" : "studio") : InFreeH ? "h" : "maker";
 
         public void Reset()
         {
@@ -45,9 +49,31 @@ namespace AdvancedLoader
         {
             OpenMode = null;
             Target = null;
+            InStudio = false;
             SelectedPath = null;
             SelectedName = null;
         }
+
+        private bool UpdateStudio()
+        {
+            var outfits = StudioOutfitPanel.IsShown;
+            var character = outfits ? StudioOutfitPanel.Character : StudioCharaPanel.IsShown ? StudioCharaPanel.Character : null;
+            if (character == null || character.charInfo == null)
+            {
+                Clear();
+                return false;
+            }
+            OpenMode = outfits ? LoadMode.Coordinate : LoadMode.Character;
+            Target = character.charInfo;
+            InStudio = true;
+            var info = outfits ? StudioOutfitPanel.Selected : StudioCharaPanel.Selected;
+            SelectedPath = info?.file;
+            SelectedName = info?.name;
+            return true;
+        }
+
+        // The game's button our button and window go under: the outfit list's load or the character list's change
+        private Rect? StudioButtonRect => OpenMode == LoadMode.Character ? StudioCharaPanel.ChangeButtonRect : StudioOutfitPanel.LoadButtonRect;
 
         private void UpdateFreeH()
         {
@@ -112,7 +138,7 @@ namespace AdvancedLoader
         {
             if (!MakerAPI.InsideAndLoaded)
             {
-                UpdateFreeH();
+                if (!UpdateStudio()) UpdateFreeH();
                 return;
             }
 
@@ -152,11 +178,25 @@ namespace AdvancedLoader
             }
         }
 
-        // In H the button sits under the outfit panel and the window opens right of it
-        private static Rect ButtonRect
+        private const string WearCustomGUID = "GarryWu.HS2WearCustom";
+        // Height of Studio Wear Custom's window under the game's button: ClothOnly / AccOnly, or the character Replace toggles
+        private float WearCustomHeight => !Chainloader.PluginInfos.ContainsKey(WearCustomGUID) ? 0 : OpenMode == LoadMode.Character ? 5 + 180 : 5 + 100;
+
+        // In H the button sits under the outfit panel and the window opens right of it; in Studio under the list's button
+        private Rect ButtonRect
         {
             get
             {
+                if (InStudio)
+                {
+                    var game = StudioButtonRect;
+                    if (game == null)
+                    {
+                        var folders = StudioOutfitPanel.FolderWindow;
+                        return new Rect(folders.x, folders.yMax + Gap, folders.width, 32);
+                    }
+                    return new Rect(game.Value.x, game.Value.yMax + WearCustomHeight + Gap, game.Value.width, 32);
+                }
                 var panel = FreeHPanelRect();
                 if (panel == null)
                 {
@@ -169,8 +209,15 @@ namespace AdvancedLoader
             }
         }
 
-        public static Rect DefaultWindowRect(float minWidth, float maxHeight)
+        public Rect DefaultWindowRect(float minWidth, float maxHeight)
         {
+            if (InStudio)
+            {
+                // Under the game's button, over Wear Custom's window (hidden while ours is open)
+                var game = StudioButtonRect ?? ButtonRect;
+                var top = game.yMax + Gap;
+                return new Rect(game.x, top, Mathf.Max(minWidth, game.width), Mathf.Clamp(Screen.height - top - 10, 200, maxHeight));
+            }
             var panel = FreeHPanelRect();
             if (panel != null)
             {
@@ -189,9 +236,24 @@ namespace AdvancedLoader
         {
         }
 
+        private bool _wearCustomHidden;
+
+        // Studio Wear Custom pops its windows up over ours when a card is clicked, so they are hidden while ours is open
+        public void WindowShown(bool shown)
+        {
+            var hide = shown && InStudio;
+            if (hide == _wearCustomHidden || !Chainloader.PluginInfos.ContainsKey(WearCustomGUID)) return;
+            _wearCustomHidden = hide;
+            var type = AccessTools.TypeByName("WearCustom.StudioCharaListUtil");
+            if (type == null) return;
+            foreach (var window in Object.FindObjectsOfType(type))
+                Traverse.Create(window).Field("showGUI").SetValue(!hide);
+        }
+
         public bool DrawOpenButton()
         {
-            if (OpenMode == null) return false;
+            // In Studio only once a card is picked, like the game's buttons
+            if (OpenMode == null || (InStudio && SelectedPath == null)) return false;
 
             var rect = ButtonRect;
 

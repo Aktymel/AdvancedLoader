@@ -15,7 +15,7 @@ namespace AdvancedLoader
     {
         private static int? CurrentOutfit(ChaControl chaCtrl) => chaCtrl.fileStatus.coordinateType;
 
-        public static IEnumerator LoadCharacter(CardData card, LoadOptions options)
+        public static IEnumerator LoadCharacter(CardData card, LoadOptions options, ChaControl target)
         {
             if (Busy) yield break;
             Busy = true;
@@ -24,15 +24,19 @@ namespace AdvancedLoader
             OtherPlugins.State otherPlugins = null;
             try
             {
-                var chaCtrl = MakerAPI.GetCharacterControl();
+                var chaCtrl = target;
+                // Studio's Change has no load flags: plugins take everything from the card, so what was not loaded is put back afterwards
+                var studioCharacter = MakerAPI.InsideAndLoaded ? null : StudioCharaPanel.CharacterOf(chaCtrl);
+                var inStudio = studioCharacter != null;
+                if (chaCtrl == null || (!MakerAPI.InsideAndLoaded && !inStudio)) yield break;
 
                 // Accessories without Clothes are loaded through the outfits too, with every clothes piece kept
                 var loadOutfits = options.Clothes || options.Accessories != AccessoryMode.Keep;
                 var clothesParts = options.Clothes ? options.ClothesParts : ClothesPart.None;
 
-                var materialSnapshot = MaterialEditorPresence.Available && (loadOutfits || options.Face || options.Body) ? TakeMaterialSnapshot(chaCtrl, card) : null;
+                var materialSnapshot = MaterialEditorPresence.Available && (inStudio || loadOutfits || options.Face || options.Body) ? TakeMaterialSnapshot(chaCtrl, card) : null;
                 var overlaySnapshot = loadOutfits && Dependencies.ClothesOverlays.IsOk ? ClothesOverlayBridge.TakeSnapshot(chaCtrl) : null;
-                var bonemodSnapshot = TakeBonemodSnapshot(chaCtrl, options);
+                var bonemodSnapshot = TakeBonemodSnapshot(chaCtrl, options, inStudio);
                 var outfitNames = loadOutfits ? Enumerable.Range(0, chaCtrl.chaFile.coordinate.Length).Select(i => Outfits.GetName(chaCtrl, i)).ToList() : null;
 
                 var anyNative = options.Face || options.Body || options.Hair || options.Parameters || loadOutfits || OtherPlugins.AnyLoaded(options, card);
@@ -40,23 +44,39 @@ namespace AdvancedLoader
 
                 if (anyNative)
                 {
-                    var page = Resources.FindObjectsOfTypeAll<CustomCharaFile>().FirstOrDefault(x => x.gameObject.scene.IsValid());
-                    var window = page == null ? null : Traverse.Create(page).Field("fileWindow").GetValue<CustomFileWindow>();
-                    if (window == null)
+                    // The maker only loads parameters into a new character
+                    var parameters = options.Parameters && (inStudio || Singleton<CustomBase>.Instance.modeNew);
+                    Action load;
+                    if (inStudio)
                     {
-                        AdvancedLoaderPlugin.Logger.LogMessage("Open \"Load character\" in maker once, then try again");
-                        yield break;
+                        // The game's Change keeps bones, FK and hair bones right; only its card read becomes a limited load
+                        Hooks.Limited = new LimitedLoadContext
+                        {
+                            Target = chaCtrl.chaFile, Sex = chaCtrl.sex, Face = options.Face, Body = options.Body, Hair = options.Hair,
+                            Parameter = parameters, Coordinate = loadOutfits
+                        };
+                        load = () => studioCharacter.ChangeChara(card.Path);
                     }
+                    else
+                    {
+                        var page = Resources.FindObjectsOfTypeAll<CustomCharaFile>().FirstOrDefault(x => x.gameObject.scene.IsValid());
+                        var window = page == null ? null : Traverse.Create(page).Field("fileWindow").GetValue<CustomFileWindow>();
+                        if (window == null)
+                        {
+                            AdvancedLoaderPlugin.Logger.LogMessage("Open \"Load character\" in maker once, then try again");
+                            yield break;
+                        }
 
-                    // The game's API and Material Editor read the load flags from the original window's toggles
-                    var parameters = options.Parameters && Singleton<CustomBase>.Instance.modeNew;
-                    toggles = new[] { window.tglChaLoadFace, window.tglChaLoadBody, window.tglChaLoadHair, window.tglChaLoadParam, window.tglChaLoadCoorde };
-                    previousToggles = toggles.Select(x => x != null && x.isOn).ToArray();
-                    SetToggle(toggles, 0, options.Face);
-                    SetToggle(toggles, 1, options.Body);
-                    SetToggle(toggles, 2, options.Hair);
-                    SetToggle(toggles, 3, parameters);
-                    SetToggle(toggles, 4, loadOutfits);
+                        // The game's API and Material Editor read the load flags from the original window's toggles
+                        toggles = new[] { window.tglChaLoadFace, window.tglChaLoadBody, window.tglChaLoadHair, window.tglChaLoadParam, window.tglChaLoadCoorde };
+                        previousToggles = toggles.Select(x => x != null && x.isOn).ToArray();
+                        SetToggle(toggles, 0, options.Face);
+                        SetToggle(toggles, 1, options.Body);
+                        SetToggle(toggles, 2, options.Hair);
+                        SetToggle(toggles, 3, parameters);
+                        SetToggle(toggles, 4, loadOutfits);
+                        load = () => LoadCharacterLikeGame(chaCtrl, card.Path, options.Face, options.Body, options.Hair, parameters, loadOutfits);
+                    }
                     otherPlugins = OtherPlugins.Apply(options, card);
 
                     if (loadOutfits)
@@ -75,7 +95,7 @@ namespace AdvancedLoader
                         Hooks.Outfits = outfitContext;
                     }
 
-                    KeepUntickedCharacterMaterials(chaCtrl, options, materialSnapshot);
+                    KeepUntickedCharacterMaterials(chaCtrl, options, materialSnapshot, inStudio);
                     Hooks.Parts = new PartsLoadContext
                     {
                         Target = chaCtrl.chaFile, BodyParts = options.BodyParts, FaceParts = options.FaceParts,
@@ -83,12 +103,13 @@ namespace AdvancedLoader
                     };
                     try
                     {
-                        LoadCharacterLikeGame(chaCtrl, card.Path, options.Face, options.Body, options.Hair, parameters, loadOutfits);
+                        load();
                     }
                     finally
                     {
                         Hooks.Outfits = null;
                         Hooks.Parts = null;
+                        Hooks.Limited = null;
                     }
                 }
 
@@ -101,11 +122,14 @@ namespace AdvancedLoader
                     if (overlaySnapshot != null && options.Clothes) RebuildOutfitOverlays(chaCtrl, outfitContext, overlaySnapshot);
                 }
 
-                if (bonemodSnapshot != null) ApplyBonemod(chaCtrl, card, options, bonemodSnapshot);
+                if (bonemodSnapshot != null) ApplyBonemod(chaCtrl, card, options, bonemodSnapshot, inStudio);
 
                 if (MaterialEditorPresence.Available)
                 {
                     if (outfitContext != null && outfitContext.FinalCount > 0) FixOutfitMaterials(chaCtrl, card, outfitContext, materialSnapshot);
+                    else if (inStudio) KeepAllOutfitMaterials(chaCtrl, card, materialSnapshot);
+                    if (inStudio && !options.Hair) KeepHairMaterials(chaCtrl, materialSnapshot);
+                    KeepHeadMaterialsOnNewHead(chaCtrl, options, materialSnapshot);
                     ApplyCharacterMaterialGroups(chaCtrl, card, options, outfitContext);
                 }
 
@@ -136,6 +160,7 @@ namespace AdvancedLoader
                 var materialSnapshot = TakeMaterialSnapshot(chaCtrl, card, options, pluginsLoadAll);
                 var overlaySnapshot = TakeOverlaySnapshot(chaCtrl, options, pluginsLoadAll);
                 var clothesFromCard = options.Clothes ? options.ClothesParts : ClothesPart.None;
+                var studioCharacter = StudioOutfitPanel.CharacterOf(chaCtrl);
 
                 // The original window has one Load button with Clothes and Accessories toggles
                 var mode = options.Accessories;
@@ -157,15 +182,26 @@ namespace AdvancedLoader
                         SetToggle(toggles, 1, loadAccessories);
                     }
 
-                    if (needsHook)
+                    // Studio's own load takes everything, so the hooks also keep what is not loaded
+                    if (needsHook || (studioCharacter != null && !loadAccessories))
                     {
                         context = NewContext(chaCtrl, card, options);
                         Hooks.Active = context;
                     }
-                    if (loadClothes) Hooks.Parts = new PartsLoadContext { CoordinateTarget = chaCtrl.nowCoordinate, ClothesParts = options.ClothesParts };
+                    if (loadClothes || studioCharacter != null)
+                        Hooks.Parts = new PartsLoadContext { CoordinateTarget = chaCtrl.nowCoordinate, ClothesParts = clothesFromCard };
                     try
                     {
-                        LoadCoordinateLikeGame(chaCtrl, card.Path, loadClothes, loadAccessories, inMaker);
+                        if (studioCharacter != null)
+                        {
+                            studioCharacter.LoadClothesFile(card.Path);
+                            // Studio stores the outfit before Reload, the accessories are only final after it
+                            chaCtrl.AssignCoordinate((ChaFileDefine.CoordinateType)chaCtrl.fileStatus.coordinateType);
+                        }
+                        else
+                        {
+                            LoadCoordinateLikeGame(chaCtrl, card.Path, loadClothes, loadAccessories, inMaker);
+                        }
                     }
                     finally
                     {
@@ -221,7 +257,7 @@ namespace AdvancedLoader
                     if (sourceFor.TryGetValue(t, out var s) && s < card.CardOutfits.Count) Outfits.SetName(chaCtrl, t, card.CardOutfits[s].Name);
                     else if (namesBefore != null && t < namesBefore.Count) Outfits.SetName(chaCtrl, t, namesBefore[t]);
                 }
-                Outfits.UpdateMakerUI();
+                if (MakerAPI.InsideAndLoaded) Outfits.UpdateMakerUI();
             }
             catch (Exception ex)
             {
@@ -293,6 +329,36 @@ namespace AdvancedLoader
             catch (Exception ex)
             {
                 AdvancedLoaderPlugin.Logger.LogError($"Failed to fix Material Editor data of outfits: {ex}");
+            }
+        }
+
+        // Without load flags ME took the clothes and accessories of every outfit from the card
+        private static void KeepAllOutfitMaterials(ChaControl chaCtrl, CardData card, object snapshot)
+        {
+            if (snapshot == null) return;
+            try
+            {
+                var current = chaCtrl.fileStatus.coordinateType;
+                var count = chaCtrl.chaFile.coordinate.Length;
+                for (var t = 0; t < count; t++)
+                {
+                    if (t != current)
+                    {
+                        MaterialEditorBridge.CopyOutfit(chaCtrl, snapshot, t, t);
+                        continue;
+                    }
+                    var slotCount = Math.Max(AccessoryData.VanillaSlotCount, chaCtrl.chaFile.coordinate[t].accessory.parts.Length);
+                    MaterialEditorBridge.ApplyClothingSlots(chaCtrl, Enumerable.Range(0, ClothesParts.Count).ToDictionary(x => x, x => snapshot), t);
+                    MaterialEditorBridge.ApplyAccessorySlots(chaCtrl, Enumerable.Range(0, slotCount).ToDictionary(x => x, x => snapshot), t);
+                }
+
+                // Outfits of the card past the character's outfit count
+                for (var t = count; t < card.CardOutfits.Count; t++)
+                    MaterialEditorBridge.CopyOutfit(chaCtrl, null, null, t);
+            }
+            catch (Exception ex)
+            {
+                AdvancedLoaderPlugin.Logger.LogError($"Failed to keep Material Editor data of outfits: {ex}");
             }
         }
 

@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using KKAPI.Maker;
@@ -31,15 +32,15 @@ namespace AdvancedLoader
         private readonly NativeLoadPanels _panels;
         private readonly Dictionary<LoadMode, LoadOptions> _options = new Dictionary<LoadMode, LoadOptions>
         {
-            { LoadMode.Character, new LoadOptions { Face = true, Body = true, Hair = true, Clothes = true, Accessories = AccessoryMode.All } },
-            { LoadMode.Coordinate, new LoadOptions { Clothes = true, Accessories = AccessoryMode.All } }
+            { LoadMode.Character, LoadOptions.Default(LoadMode.Character) },
+            { LoadMode.Coordinate, LoadOptions.Default(LoadMode.Coordinate) }
         };
 
         private LoadMode _mode;
         private CardData _card;
         private Rect _rect;
         private bool _placed;
-        private bool _placedInH;
+        private string _placedAt;
         private Vector2 _scroll;
         // Card slot -> character slot for the current options, refreshed every frame for the preview
         private Dictionary<int, int> _targets = new Dictionary<int, int>();
@@ -56,16 +57,26 @@ namespace AdvancedLoader
         {
             _plugin = plugin;
             _panels = panels;
+            if (Settings.RememberTicks.Value)
+                foreach (var options in _options)
+                    options.Value.Load(Settings.SavedTicks(options.Key));
+        }
+
+        public void SaveTicks()
+        {
+            if (!Settings.RememberTicks.Value) return;
+            foreach (var options in _options) Settings.SaveTicks(options.Key, options.Value.Save());
         }
 
         public bool Visible { get; set; }
 
-        private bool Shown => Visible && _panels.OpenMode != null;
+        public bool Shown => Visible && _panels.OpenMode != null;
         private LoadOptions Options => _options[_mode];
 
         public void Reset()
         {
             Visible = false;
+            SaveTicks();
             _card = null;
             foreach (var options in _options.Values) options.SelectedSlots.Clear();
         }
@@ -148,12 +159,12 @@ namespace AdvancedLoader
         public void OnGUI()
         {
             if (!Shown) return;
-            // Maker and H each get their own first position
-            if (!_placed || _placedInH != _panels.InFreeH)
+            // Maker, H and Studio each get their own first position
+            if (!_placed || _placedAt != _panels.Location)
             {
-                _rect = NativeLoadPanels.DefaultWindowRect(MinWidth, MaxHeight);
+                _rect = _panels.DefaultWindowRect(MinWidth, MaxHeight);
                 _placed = true;
-                _placedInH = _panels.InFreeH;
+                _placedAt = _panels.Location;
             }
 
             var skin = GUI.skin;
@@ -174,7 +185,12 @@ namespace AdvancedLoader
             GUILayout.BeginHorizontal();
             GUILayout.Label(_card == null ? "Select a card in the list." : CardTitle());
             GUILayout.FlexibleSpace();
-            if (GUILayout.Button("X", GUILayout.Width(26))) _plugin.SetWindowVisible(false);
+            if (ConfigManagerBridge.Available && GUILayout.Button("s", GUILayout.Width(26))) ConfigManagerBridge.Open(AdvancedLoaderPlugin.PluginName);
+            if (GUILayout.Button("X", GUILayout.Width(26)))
+            {
+                _plugin.SetWindowVisible(false);
+                SaveTicks();
+            }
             GUILayout.EndHorizontal();
 
             _scroll = GUILayout.BeginScrollView(_scroll);
@@ -201,9 +217,10 @@ namespace AdvancedLoader
         {
             var options = Options;
 
-            BeginSection(_mode == LoadMode.Character ? "Character" : "Clothes");
             if (_mode == LoadMode.Character)
             {
+                var canLoadParameters = CanLoadParameters;
+                BeginSection("Character", () => SetCharacterParts(options, true, canLoadParameters), () => SetCharacterParts(options, false, false));
                 DrawFace(options);
                 DrawBody(options);
                 if (options.Face || options.Body)
@@ -211,11 +228,14 @@ namespace AdvancedLoader
                         ? "bonemod sliders are not loaded by category. Use the \"Face Bonemod\" / \"Body Bonemod\" toggles under Other plugins instead."
                         : "bonemod sliders are not loaded."));
                 options.Hair = GUILayout.Toggle(options.Hair, " Hair");
-                var canLoadParameters = Singleton<CustomBase>.Instance.modeNew;
                 var enabled = GUI.enabled;
                 GUI.enabled = canLoadParameters;
                 options.Parameters = GUILayout.Toggle(options.Parameters && canLoadParameters, canLoadParameters ? " Parameters" : " Parameters (new characters only)");
                 GUI.enabled = enabled;
+            }
+            else
+            {
+                BeginSection("Clothes");
             }
             DrawClothes(options);
             EndSection();
@@ -241,7 +261,10 @@ namespace AdvancedLoader
             }
             else
             {
-                BeginSection("Material Editor");
+                if (_mode == LoadMode.Character)
+                    BeginSection("Material Editor", () => options.MaterialGroups = AllMaterialGroups, () => options.MaterialGroups = MaterialGroup.None);
+                else
+                    BeginSection("Material Editor");
                 if (_mode == LoadMode.Character)
                 {
                     DrawGroupToggle(options, MaterialGroup.Body, " Body");
@@ -257,6 +280,19 @@ namespace AdvancedLoader
             }
 
             if (_mode == LoadMode.Character && _card != null) DrawOtherPlugins(options);
+        }
+
+        // The maker only loads parameters into a new character; Studio's Change always can
+        private static bool CanLoadParameters => !MakerAPI.InsideAndLoaded || Singleton<CustomBase>.Instance.modeNew;
+
+        private const MaterialGroup AllMaterialGroups = MaterialGroup.Body | MaterialGroup.Head | MaterialGroup.Eyes | MaterialGroup.Hair | MaterialGroup.Clothes;
+
+        private void SetCharacterParts(LoadOptions options, bool on, bool parameters)
+        {
+            options.Face = options.Body = options.Hair = options.Clothes = on;
+            options.Parameters = parameters;
+            // Same as unticking each one
+            if (!on) _faceExpanded = _bodyExpanded = _clothesExpanded = false;
         }
 
         private void DrawFace(LoadOptions options)
@@ -359,10 +395,21 @@ namespace AdvancedLoader
             if (!string.IsNullOrEmpty(text)) GUILayout.Label(text, _warningStyle);
         }
 
-        private void BeginSection(string title)
+        private void BeginSection(string title, System.Action all = null, System.Action none = null)
         {
             GUILayout.BeginVertical(GUI.skin.box);
-            GUILayout.Label(title, _headerStyle);
+            if (all == null)
+            {
+                GUILayout.Label(title, _headerStyle);
+                return;
+            }
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(title, _headerStyle, GUILayout.ExpandWidth(false));
+            GUILayout.Space(12);
+            if (GUILayout.Button("All", GUILayout.Width(50))) all();
+            if (GUILayout.Button("None", GUILayout.Width(50))) none();
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
         }
 
         private static void EndSection()
@@ -442,7 +489,10 @@ namespace AdvancedLoader
 #if KKS || KK
         private void DrawOutfits(LoadOptions options)
         {
-            BeginSection("Outfits");
+            if (options.OutfitSelection == OutfitMode.Selected && _card != null && _card.CardOutfits.Count > 0)
+                BeginSection("Outfits", () => options.SelectedOutfits.UnionWith(_card.CardOutfits.Select(x => x.Index)), () => options.SelectedOutfits.Clear());
+            else
+                BeginSection("Outfits");
             if (_card == null || _card.CardOutfits.Count == 0)
             {
                 GUILayout.Label("Select a card to see its outfits.");
@@ -464,7 +514,7 @@ namespace AdvancedLoader
             }
             DrawWarning(Dependencies.MoreOutfits.Warning("only the 4 base outfits exist, card outfits past them are not loaded."));
 
-            var chaCtrl = MakerAPI.GetCharacterControl();
+            var chaCtrl = _panels.Target;
             foreach (var outfit in _card.CardOutfits)
             {
                 var target = _outfitTargets.TryGetValue(outfit.Index, out var t)
@@ -530,7 +580,9 @@ namespace AdvancedLoader
             var entries = OtherPlugins.Entries.Where(x => _card.PluginDataIds.Contains(x.Id)).ToList();
             if (entries.Count == 0) return;
 
-            BeginSection("Other plugins");
+            BeginSection("Other plugins",
+                () => { foreach (var entry in entries) options.OtherPlugins[entry.Id] = true; },
+                () => { foreach (var entry in entries) options.OtherPlugins[entry.Id] = false; });
             foreach (var entry in entries)
             {
                 options.OtherPlugins.TryGetValue(entry.Id, out var isOn);
@@ -551,7 +603,7 @@ namespace AdvancedLoader
                 if (options.Body && options.BodyParts != BodyPart.None)
                     parts.Add(options.BodyParts == BodyPart.All ? "Body" : $"Body ({BodyFaceParts.Describe(options.BodyParts)})");
                 if (options.Hair) parts.Add("Hair");
-                if (options.Parameters && Singleton<CustomBase>.Instance.modeNew) parts.Add("Parameters");
+                if (options.Parameters && CanLoadParameters) parts.Add("Parameters");
             }
             if (options.Clothes && options.ClothesParts != ClothesPart.None)
                 parts.Add(options.ClothesParts == ClothesPart.All ? "Clothes" : $"Clothes ({ClothesParts.Describe(options.ClothesParts)})");
@@ -584,7 +636,26 @@ namespace AdvancedLoader
         {
             var card = _card;
             var options = Options;
-            _plugin.StartCoroutine(_mode == LoadMode.Character ? LoadRunner.LoadCharacter(card, options) : LoadRunner.LoadCoordinate(card, options, _panels.Target));
+            var load = _mode == LoadMode.Character ? LoadRunner.LoadCharacter(card, options, _panels.Target) : LoadRunner.LoadCoordinate(card, options, _panels.Target);
+            _plugin.StartCoroutine(LoadAndFinish(_mode, load));
+        }
+
+        private IEnumerator LoadAndFinish(LoadMode mode, IEnumerator load)
+        {
+            yield return _plugin.StartCoroutine(load);
+            switch (Settings.AfterLoadAction.Value)
+            {
+                case AfterLoad.ClearSelection:
+                    _options[mode].SelectedSlots.Clear();
+#if KKS || KK
+                    _options[mode].SelectedOutfits.Clear();
+#endif
+                    break;
+                case AfterLoad.ResetToDefault:
+                    _options[mode] = LoadOptions.Default(mode);
+                    break;
+            }
+            SaveTicks();
         }
     }
 }

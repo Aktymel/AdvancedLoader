@@ -111,19 +111,25 @@ namespace AdvancedLoader
         {
             try
             {
-                card.PluginDataIds.UnionWith(ExtendedSave.GetAllExtendedData(temp).Where(x => x.Value != null).Select(x => x.Key));
+                AddPluginDataIds(card, ExtendedSave.GetAllExtendedData(temp));
 #if KKS || KK
                 // Koikatsu Sunshine keeps clothes related plugin data in each outfit
                 foreach (var coordinate in temp.coordinate)
-                    card.PluginDataIds.UnionWith(ExtendedSave.GetAllExtendedData(coordinate).Where(x => x.Value != null).Select(x => x.Key));
+                    AddPluginDataIds(card, ExtendedSave.GetAllExtendedData(coordinate));
 #else
-                card.PluginDataIds.UnionWith(ExtendedSave.GetAllExtendedData(temp.coordinate).Where(x => x.Value != null).Select(x => x.Key));
+                AddPluginDataIds(card, ExtendedSave.GetAllExtendedData(temp.coordinate));
 #endif
             }
             catch (Exception ex)
             {
                 AdvancedLoaderPlugin.Logger.LogWarning($"Could not read plugin data from {card.Path}: {ex.Message}");
             }
+        }
+
+        // Null when the card or outfit has no plugin data
+        private static void AddPluginDataIds(CardData card, Dictionary<string, PluginData> data)
+        {
+            if (data != null) card.PluginDataIds.UnionWith(data.Where(x => x.Value != null).Select(x => x.Key));
         }
     }
 }

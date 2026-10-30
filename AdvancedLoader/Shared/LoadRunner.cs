@@ -33,14 +33,14 @@ namespace AdvancedLoader
             }
             catch (Exception ex)
             {
-                AdvancedLoaderPlugin.Logger.LogWarning($"Could not read current Material Editor data: {ex.Message}");
+                AdvancedLoaderPlugin.Logger.LogWarning($"Could not read current Material Editor data: {(ex.InnerException ?? ex).Message}");
                 return null;
             }
         }
 
-        private static object TakeBonemodSnapshot(ChaControl chaCtrl, LoadOptions options)
+        private static object TakeBonemodSnapshot(ChaControl chaCtrl, LoadOptions options, bool always = false)
         {
-            if (!AbmxPresence.Available || !(options.Face || options.Body)) return null;
+            if (!AbmxPresence.Available || !(always || options.Face || options.Body)) return null;
             try
             {
                 return AbmxBridge.Snapshot(chaCtrl);
@@ -52,11 +52,14 @@ namespace AdvancedLoader
             }
         }
 
-        private static void ApplyBonemod(ChaControl chaCtrl, CardData card, LoadOptions options, object snapshot)
+        // allLoaded: outside maker ABMX loads the whole card, so the face and body that were not ticked come back from the snapshot
+        private static void ApplyBonemod(ChaControl chaCtrl, CardData card, LoadOptions options, object snapshot, bool allLoaded = false)
         {
             try
             {
-                AbmxBridge.Apply(chaCtrl, card.Bonemod, snapshot, options.Face, options.FaceParts, options.Body, options.BodyParts);
+                AbmxBridge.Apply(chaCtrl, card.Bonemod, snapshot,
+                    options.Face || allLoaded, options.Face ? options.FaceParts : FacePart.None,
+                    options.Body || allLoaded, options.Body ? options.BodyParts : BodyPart.None);
             }
             catch (Exception ex)
             {
@@ -64,11 +67,50 @@ namespace AdvancedLoader
             }
         }
 
-        private static void KeepUntickedCharacterMaterials(ChaControl chaCtrl, LoadOptions options, object snapshot)
+        // allLoaded: without load flags ME replaces body/head/eye materials on every load
+        private static void KeepUntickedCharacterMaterials(ChaControl chaCtrl, LoadOptions options, object snapshot, bool allLoaded = false)
         {
-            if (!MaterialEditorPresence.Available || snapshot == null || !(options.Face || options.Body)) return;
+            if (!MaterialEditorPresence.Available || snapshot == null || !(allLoaded || options.Face || options.Body)) return;
             var keep = (MaterialGroup.Body | MaterialGroup.Head | MaterialGroup.Eyes) & ~options.MaterialGroups;
             if (keep != MaterialGroup.None) MaterialEditorBridge.KeepCharacterGroupsOnLoad(chaCtrl, snapshot, keep);
+        }
+
+        // Without load flags ME takes hair, clothes and accessories from the card too; the ones that were not loaded get their data back
+        private static void KeepUnloadedPartMaterials(ChaControl chaCtrl, LoadOptions options, object snapshot)
+        {
+            if (snapshot == null) return;
+            KeepUntickedClothesMaterials(chaCtrl, options.Clothes ? options.ClothesParts : ClothesPart.None, snapshot);
+            if (options.Accessories == AccessoryMode.Keep) KeepAllAccessoryMaterials(chaCtrl, snapshot);
+            if (!options.Hair) KeepHairMaterials(chaCtrl, snapshot);
+        }
+
+        private static void KeepHairMaterials(ChaControl chaCtrl, object snapshot)
+        {
+            if (snapshot == null) return;
+            try
+            {
+                MaterialEditorBridge.ApplyGroups(chaCtrl, snapshot, MaterialGroup.Hair, true);
+            }
+            catch (Exception ex)
+            {
+                AdvancedLoaderPlugin.Logger.LogError($"Failed to keep hair Material Editor data: {ex}");
+            }
+        }
+
+        // A new face type brings a head whose materials have other names, so ME has nothing to put the kept data on
+        private static void KeepHeadMaterialsOnNewHead(ChaControl chaCtrl, LoadOptions options, object snapshot)
+        {
+            if (snapshot == null || !options.Face) return;
+            var keep = (MaterialGroup.Head | MaterialGroup.Eyes) & ~options.MaterialGroups;
+            if (keep == MaterialGroup.None) return;
+            try
+            {
+                MaterialEditorBridge.MoveToNewHead(chaCtrl, snapshot, keep);
+            }
+            catch (Exception ex)
+            {
+                AdvancedLoaderPlugin.Logger.LogError($"Failed to move Material Editor data to the new head: {ex}");
+            }
         }
 
         private static void StopKeepingCharacterMaterials()

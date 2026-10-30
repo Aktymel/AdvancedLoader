@@ -29,4 +29,16 @@ namespace AdvancedLoader
         public ClothesPart ClothesParts = ClothesPart.All;
         public Dictionary<string, PluginData> KeptPluginData;
     }
+
+    // Studio's Change loads the whole card; this turns it into the maker's limited load
+    internal sealed class LimitedLoadContext
+    {
+        public ChaFileControl Target;
+        public byte Sex;
+        public bool Face;
+        public bool Body;
+        public bool Hair;
+        public bool Parameter;
+        public bool Coordinate;
+    }
 }

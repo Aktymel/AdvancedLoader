@@ -1,5 +1,4 @@
 using BepInEx;
-using BepInEx.Configuration;
 using BepInEx.Logging;
 using HarmonyLib;
 using KKAPI;
@@ -15,25 +14,28 @@ namespace AdvancedLoader
     [BepInDependency("KCOX", BepInDependency.DependencyFlags.SoftDependency)]
 #if HS2
     [BepInProcess("HoneySelect2")]
+    [BepInProcess("StudioNEOV2")]
 #elif AI
     [BepInProcess("AI-Syoujyo")]
     [BepInProcess("AI-Shoujo")]
+    [BepInProcess("StudioNEOV2")]
 #elif KKS
     [BepInProcess("KoikatsuSunshine")]
+    [BepInProcess("CharaStudio")]
 #elif KK
     [BepInProcess("Koikatu")]
     [BepInProcess("Koikatsu Party")]
+    [BepInProcess("CharaStudio")]
 #endif
     public class AdvancedLoaderPlugin : BaseUnityPlugin
     {
         public const string GUID = "com.aktymel.advancedloader";
         public const string PluginName = "Advanced Loader";
-        public const string Version = "1.3.0";
+        public const string Version = "1.4.0";
 
         internal static AdvancedLoaderPlugin Instance;
         internal static new ManualLogSource Logger;
 
-        private ConfigEntry<KeyboardShortcut> _openKey;
         private readonly NativeLoadPanels _panels = new NativeLoadPanels();
         private AdvancedLoadWindow _window;
 
@@ -41,7 +43,7 @@ namespace AdvancedLoader
         {
             Instance = this;
             Logger = base.Logger;
-            _openKey = Config.Bind("General", "Open Advanced load", KeyboardShortcut.Empty, "Show or hide the Advanced load window in chara maker.");
+            Settings.Bind(Config);
             _window = new AdvancedLoadWindow(this, _panels);
 
             var harmony = Harmony.CreateAndPatchAll(typeof(Hooks), GUID);
@@ -59,6 +61,11 @@ namespace AdvancedLoader
             Dependencies.LogProblems();
         }
 
+        private void OnApplicationQuit()
+        {
+            _window.SaveTicks();
+        }
+
         internal void SetWindowVisible(bool visible)
         {
             _window.Visible = visible;
@@ -66,15 +73,17 @@ namespace AdvancedLoader
 
         private void Update()
         {
-            if (!MakerAPI.InsideAndLoaded && !NativeLoadPanels.FreeHPanelExists) return;
+            if (!MakerAPI.InsideAndLoaded && !NativeLoadPanels.OutsideMakerPanelExists) return;
+            var openBefore = _panels.OpenMode;
             _panels.Update();
-            if (_openKey.Value.IsDown()) SetWindowVisible(!_window.Visible);
+            if (Settings.OpenAutomatically.Value && _panels.OpenMode != null && _panels.OpenMode != openBefore) SetWindowVisible(true);
             _window.Update();
+            _panels.WindowShown(_window.Shown);
         }
 
         private void OnGUI()
         {
-            if (!MakerAPI.InsideAndLoaded && !NativeLoadPanels.FreeHPanelExists) return;
+            if (!MakerAPI.InsideAndLoaded && !NativeLoadPanels.OutsideMakerPanelExists) return;
             _panels.DrawNotices();
             if (!_window.Visible && _panels.DrawOpenButton()) SetWindowVisible(true);
             _window.OnGUI();

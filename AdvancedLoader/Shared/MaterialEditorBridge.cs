@@ -38,6 +38,9 @@ namespace AdvancedLoader
 
         // Character's own originals; ME would reset to the card character's
         public Dictionary<string, object> OriginalValues = new Dictionary<string, object>();
+
+        // Head renderer -> material names, to follow a new face type
+        public Dictionary<string, List<string>> HeadMaterials = new Dictionary<string, List<string>>();
     }
 
     // Only use when MaterialEditorPresence.Available
@@ -106,8 +109,71 @@ namespace AdvancedLoader
             if (textures != null)
                 foreach (var texture in textures)
                     data.TextureData[texture.Key] = texture.Value.Data;
+            data.HeadMaterials = HeadMaterialNames(chaCtrl);
             if (card is MaterialEditorData cardData) RecordOriginalValues(controller, data, cardData);
             return data;
+        }
+
+        // Head renderer -> its material names
+        private static Dictionary<string, List<string>> HeadMaterialNames(ChaControl chaCtrl)
+        {
+            var result = new Dictionary<string, List<string>>();
+            if (chaCtrl.objHead == null) return result;
+            foreach (var renderer in chaCtrl.objHead.GetComponentsInChildren<Renderer>(true))
+            {
+                var name = FormatName(renderer.name);
+                if (!IsPartRenderer(renderer) && !result.ContainsKey(name))
+                    result[name] = renderer.sharedMaterials.Select(x => FormatName(x == null ? null : x.name)).ToList();
+            }
+            return result;
+        }
+
+        // Puts the kept head and eye data of the old head's materials on the same renderers' materials of the new head
+        public static void MoveToNewHead(ChaControl chaCtrl, object snapshot, MaterialGroup groups)
+        {
+            var controller = GetController(chaCtrl);
+            if (!(snapshot is MaterialEditorData source) || controller == null) return;
+
+            var now = HeadMaterialNames(chaCtrl);
+            var present = new HashSet<string>(now.Values.SelectMany(x => x));
+            var renames = new Dictionary<string, string>();
+            foreach (var renderer in source.HeadMaterials)
+            {
+                if (!now.TryGetValue(renderer.Key, out var materials) || materials.Count != renderer.Value.Count) continue;
+                for (var i = 0; i < materials.Count; i++)
+                {
+                    var old = renderer.Value[i];
+                    var group = IsEyeName(old) ? MaterialGroup.Eyes : MaterialGroup.Head;
+                    if (old != materials[i] && old.Length > 0 && !present.Contains(old) && (groups & group) != 0 && !renames.ContainsKey(old))
+                        renames[old] = materials[i];
+                }
+            }
+            if (renames.Count == 0) return;
+
+            bool Moved(ObjectType type, string material) => type == ObjectType.Character && renames.ContainsKey(material);
+
+            // The old entries have nothing to apply to any more
+            var traverse = Traverse.Create(controller);
+            traverse.Field(ShaderListKey).GetValue<List<MaterialShader>>()?.RemoveAll(x => Moved(x.ObjectType, x.MaterialName));
+            traverse.Field(FloatListKey).GetValue<List<MaterialFloatProperty>>()?.RemoveAll(x => Moved(x.ObjectType, x.MaterialName));
+            traverse.Field(ColorListKey).GetValue<List<MaterialColorProperty>>()?.RemoveAll(x => Moved(x.ObjectType, x.MaterialName));
+            traverse.Field(KeywordListKey).GetValue<List<MaterialKeywordProperty>>()?.RemoveAll(x => Moved(x.ObjectType, x.MaterialName));
+            traverse.Field(TextureListKey).GetValue<List<MaterialTextureProperty>>()?.RemoveAll(x => Moved(x.ObjectType, x.MaterialName));
+
+            var moved = new MaterialEditorData { TextureData = source.TextureData };
+            moved.Shaders = Copy(source.Shaders.Where(x => Moved(x.ObjectType, x.MaterialName)).ToList());
+            moved.Floats = Copy(source.Floats.Where(x => Moved(x.ObjectType, x.MaterialName)).ToList());
+            moved.Colors = Copy(source.Colors.Where(x => Moved(x.ObjectType, x.MaterialName)).ToList());
+            moved.Keywords = Copy(source.Keywords.Where(x => Moved(x.ObjectType, x.MaterialName)).ToList());
+            moved.Textures = Copy(source.Textures.Where(x => Moved(x.ObjectType, x.MaterialName)).ToList());
+            foreach (var x in moved.Shaders) x.MaterialName = renames[x.MaterialName];
+            foreach (var x in moved.Floats) x.MaterialName = renames[x.MaterialName];
+            foreach (var x in moved.Colors) x.MaterialName = renames[x.MaterialName];
+            foreach (var x in moved.Keywords) x.MaterialName = renames[x.MaterialName];
+            foreach (var x in moved.Textures) x.MaterialName = renames[x.MaterialName];
+
+            var targets = new HashSet<string>(renames.Values);
+            Apply(controller, moved, (type, slot, material) => type == ObjectType.Character && targets.Contains(material), (type, slot, renderer) => false, false);
         }
 
         private static void RecordOriginalValues(MaterialEditorCharaController controller, MaterialEditorData snapshot, MaterialEditorData card)
@@ -539,7 +605,15 @@ namespace AdvancedLoader
 
         private static GameObject FindGameObject(MaterialEditorCharaController controller, ObjectType type, int slot)
         {
-            return FindGameObjectMethod?.Invoke(controller, new object[] { type, slot }) as GameObject;
+            // ME doesn't check the slot range, and a card can name slots this character doesn't have
+            try
+            {
+                return FindGameObjectMethod?.Invoke(controller, new object[] { type, slot }) as GameObject;
+            }
+            catch (TargetInvocationException)
+            {
+                return null;
+            }
         }
 
         private static bool TryFindMaterial(MaterialEditorCharaController controller, ObjectType type, int slot, string materialName, out GameObject go, out Material material)
@@ -577,13 +651,7 @@ namespace AdvancedLoader
 
             foreach (var renderer in chaCtrl.GetComponentsInChildren<Renderer>(true))
             {
-#if HS2 || AI
-                if (renderer.GetComponentInParent<CmpClothes>() != null || renderer.GetComponentInParent<CmpHair>() != null || renderer.GetComponentInParent<CmpAccessory>() != null)
-                    continue;
-#elif KKS || KK
-                if (renderer.GetComponentInParent<ChaClothesComponent>() != null || renderer.GetComponentInParent<ChaCustomHairComponent>() != null || renderer.GetComponentInParent<ChaAccessoryComponent>() != null)
-                    continue;
-#endif
+                if (IsPartRenderer(renderer)) continue;
 
                 var rendererName = FormatName(renderer.name);
                 var group = head != null && renderer.transform.IsChildOf(head)
@@ -599,6 +667,16 @@ namespace AdvancedLoader
                 }
             }
             return materialGroups;
+        }
+
+        // Clothes, hair and accessories have their own ME data
+        private static bool IsPartRenderer(Renderer renderer)
+        {
+#if HS2 || AI
+            return renderer.GetComponentInParent<CmpClothes>() != null || renderer.GetComponentInParent<CmpHair>() != null || renderer.GetComponentInParent<CmpAccessory>() != null;
+#elif KKS || KK
+            return renderer.GetComponentInParent<ChaClothesComponent>() != null || renderer.GetComponentInParent<ChaCustomHairComponent>() != null || renderer.GetComponentInParent<ChaAccessoryComponent>() != null;
+#endif
         }
 
         private static MaterialGroup GuessCharacterGroup(string name)

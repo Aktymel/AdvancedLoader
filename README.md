@@ -19,6 +19,7 @@ Also built for AI-Shoujo, but not tested there yet.
 - **Other plugins**: every plugin with data on the card is listed.
 
 
+
 ### Koikatsu Sunshine / Koikatsu: outfits
 
 - Supports outfits
@@ -50,12 +51,10 @@ Copy the file for your game into `BepInEx\plugins`:
 
 ## Usage
 
-1. In the character maker open *Load character* or *Clothes > Load*, or the outfit list in the main game (Studio coming soon).
+1. In the character maker open *Load character* or *Clothes > Load*, the outfit list in the main game, or *Change character* / *Clothes* in Studio.
 2. Click the **Advanced load** button and select a card in the game's list.
 3. Tick what to load and press **Load** in **Advanced load**.
 - The game's original load windows are not changed.
-
-A keyboard shortcut for the window can be set in the plugin settings (F1).
 
 ## Compatibility
 
@@ -70,6 +69,7 @@ A keyboard shortcut for the window can be set in the plugin settings (F1).
 
 ## Changelog
 
+- 1.4.0 — Full *Studio* support.
 - 1.3.0 — Full *main game* support.
 - 1.2.0 — *Other plugins* lists every plugin with data on the card and keeps the unticked ones; unticked Material Editor groups stay as they were on Face/Body loads; Koikatsu version, untested AI-Shoujo version.
 - 1.1.0 — Koikatsu Sunshine version, outfit selection for Koikatsu Sunshine.

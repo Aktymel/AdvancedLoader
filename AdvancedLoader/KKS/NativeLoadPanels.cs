@@ -1,4 +1,4 @@
-using System.Linq;
+﻿using System.Linq;
 using BepInEx.Bootstrap;
 using BepInEx.Configuration;
 using ChaCustom;
@@ -20,7 +20,7 @@ namespace AdvancedLoader
         // Outfit list of the H scene and the scene it belongs to, set by Hooks when it starts
         public static clothesFileControl FreeHPanel;
         public static string FreeHSceneName;
-        public static bool FreeHPanelExists => FreeHPanel != null;
+        public static bool OutsideMakerPanelExists => FreeHPanel != null || StudioOutfitPanel.Exists || StudioCharaPanel.Exists;
 
         // Same check as BrowserFolders: hidden while settings or another screen is on top
 #if KK
@@ -35,7 +35,11 @@ namespace AdvancedLoader
 
         public ChaControl Target { get; private set; }
 
-        public bool InFreeH => !MakerAPI.InsideAndLoaded && OpenMode != null;
+        public bool InStudio { get; private set; }
+
+        public bool InFreeH => !MakerAPI.InsideAndLoaded && OpenMode != null && !InStudio;
+
+        public string Location => InStudio ? (OpenMode == LoadMode.Character ? "studio chara" : "studio") : InFreeH ? "h" : "maker";
 
         public string SelectedPath { get; private set; }
 
@@ -52,6 +56,7 @@ namespace AdvancedLoader
         {
             OpenMode = null;
             Target = null;
+            InStudio = false;
             SelectedPath = null;
             SelectedName = null;
         }
@@ -60,7 +65,7 @@ namespace AdvancedLoader
         {
             if (!MakerAPI.InsideAndLoaded)
             {
-                UpdateFreeH();
+                if (!UpdateStudio()) UpdateFreeH();
                 return;
             }
 
@@ -95,6 +100,24 @@ namespace AdvancedLoader
             OpenMode = LoadMode.Coordinate;
             Target = panel.chaCtrl;
             SetSelection(panel.listCtrl);
+        }
+
+        private bool UpdateStudio()
+        {
+            var outfits = StudioOutfitPanel.IsShown;
+            var character = outfits ? StudioOutfitPanel.Character : StudioCharaPanel.IsShown ? StudioCharaPanel.Character : null;
+            if (character == null || character.charInfo == null)
+            {
+                Clear();
+                return false;
+            }
+            OpenMode = outfits ? LoadMode.Coordinate : LoadMode.Character;
+            Target = character.charInfo;
+            InStudio = true;
+            var info = outfits ? StudioOutfitPanel.Selected : StudioCharaPanel.Selected;
+            SelectedPath = info?.file;
+            SelectedName = info?.name;
+            return true;
         }
 
         private void SetSelection(CustomFileListCtrl list)
@@ -139,12 +162,30 @@ namespace AdvancedLoader
         private static float FolderWindowWidth => Screen.width * 0.125f;
         private static bool HasFolderWindow => Chainloader.PluginInfos.ContainsKey(BrowserFoldersGUID);
 
-        private static Rect ButtonRect => HasFolderWindow
-            ? new Rect(FolderWindowX, FolderWindowY - Gap - ButtonHeight, FolderWindowWidth, ButtonHeight)
-            : new Rect(FolderWindowX, FolderWindowY, FolderWindowWidth, ButtonHeight);
-
-        public static Rect DefaultWindowRect(float minWidth, float maxHeight)
+        private Rect ButtonRect
         {
+            get
+            {
+                if (InStudio)
+                {
+                    var folders = StudioOutfitPanel.FolderWindow;
+                    return new Rect(folders.x, folders.yMax + Gap, folders.width, ButtonHeight);
+                }
+                return HasFolderWindow
+                    ? new Rect(FolderWindowX, FolderWindowY - Gap - ButtonHeight, FolderWindowWidth, ButtonHeight)
+                    : new Rect(FolderWindowX, FolderWindowY, FolderWindowWidth, ButtonHeight);
+            }
+        }
+
+        public Rect DefaultWindowRect(float minWidth, float maxHeight)
+        {
+            if (InStudio)
+            {
+                var folders = StudioOutfitPanel.FolderWindow;
+                var w = Mathf.Max(minWidth, folders.width);
+                return new Rect(folders.xMax + Gap, folders.y, w, Mathf.Clamp(Screen.height - folders.y - 10, 200, maxHeight));
+            }
+
             var button = ButtonRect;
             var width = Mathf.Max(minWidth, FolderWindowWidth);
             if (!HasFolderWindow)
@@ -196,9 +237,14 @@ namespace AdvancedLoader
             GUI.skin = skin;
         }
 
+        public void WindowShown(bool shown)
+        {
+        }
+
         public bool DrawOpenButton()
         {
-            if (OpenMode == null) return false;
+            // In Studio only once an outfit is picked, like the game's load button
+            if (OpenMode == null || (InStudio && SelectedPath == null)) return false;
 
             var rect = ButtonRect;
 

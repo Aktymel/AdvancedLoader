@@ -27,6 +27,34 @@ namespace AdvancedLoader
             if (__instance.name == "CoordinatesCard") NativeLoadPanels.FreeHPanel = __instance;
         }
 
+        [HarmonyPostfix]
+        [HarmonyPatch(typeof(Studio.MPCharCtrl.CostumeInfo), nameof(Studio.MPCharCtrl.CostumeInfo.Init))]
+        private static void CostumeInfoInitPostfix(object __instance)
+        {
+            StudioOutfitPanel.Set(__instance);
+        }
+
+        [HarmonyPostfix]
+        [HarmonyPatch(typeof(Studio.CharaList), nameof(Studio.CharaList.InitCharaList))]
+        private static void CharaListInitPostfix(Studio.CharaList __instance)
+        {
+            StudioCharaPanel.Add(__instance);
+        }
+
+        internal static LimitedLoadContext Limited;
+
+        [HarmonyPrefix]
+        [HarmonyPatch(typeof(ChaFileControl), nameof(ChaFileControl.LoadCharaFile), typeof(string), typeof(byte), typeof(bool), typeof(bool))]
+        private static bool LoadCharaFilePrefix(ChaFileControl __instance, string filename, ref bool __result)
+        {
+            var limited = Limited;
+            if (limited == null || limited.Target != __instance) return true;
+            // LoadFileLimited reads the card with LoadCharaFile into its own ChaFileControl
+            Limited = null;
+            __result = __instance.LoadFileLimited(filename, limited.Sex, limited.Face, limited.Body, limited.Hair, limited.Parameter, limited.Coordinate);
+            return false;
+        }
+
         [HarmonyPrefix]
         [HarmonyPatch(typeof(ChaFileControl), nameof(ChaFileControl.LoadFileLimited), typeof(string), typeof(byte), typeof(bool), typeof(bool), typeof(bool), typeof(bool), typeof(bool))]
         private static void LoadFileLimitedPrefix(ChaFileControl __instance)
