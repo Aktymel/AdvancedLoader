@@ -61,11 +61,19 @@ namespace AdvancedLoader
             if (limited == null || limited.Target != __instance) return true;
             // LoadFileLimited reads the card with LoadCharaFile into its own ChaFileControl
             Limited = null;
+            LimitedCardData.Begin(__instance);
+            try
+            {
 #if KK
-            __result = __instance.LoadFileLimited(filename, limited.Sex, limited.Face, limited.Body, limited.Hair, limited.Parameter, limited.Coordinate);
+                __result = __instance.LoadFileLimited(filename, limited.Sex, limited.Face, limited.Body, limited.Hair, limited.Parameter, limited.Coordinate);
 #else
-            __result = __instance.LoadFileLimited(filename, limited.Sex, limited.Face, limited.Body, limited.Hair, limited.Parameter, limited.Coordinate, false);
+                __result = __instance.LoadFileLimited(filename, limited.Sex, limited.Face, limited.Body, limited.Hair, limited.Parameter, limited.Coordinate, false);
 #endif
+            }
+            finally
+            {
+                LimitedCardData.End();
+            }
             return false;
         }
 
@@ -108,7 +116,11 @@ namespace AdvancedLoader
 #else
         [HarmonyPatch(typeof(ChaFileControl), nameof(ChaFileControl.LoadFileLimited), typeof(string), typeof(byte), typeof(bool), typeof(bool), typeof(bool), typeof(bool), typeof(bool), typeof(bool))]
 #endif
-        private static void KeepPluginDataFirstPostfix(ChaFileControl __instance) => KeepPluginData(__instance);
+        private static void KeepPluginDataFirstPostfix(ChaFileControl __instance)
+        {
+            if (!ReadingCard) LimitedCardData.CopyTo(__instance);
+            KeepPluginData(__instance);
+        }
 
         [HarmonyPostfix, HarmonyPriority(Priority.Last)]
 #if KK

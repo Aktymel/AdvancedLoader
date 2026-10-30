@@ -51,7 +51,15 @@ namespace AdvancedLoader
             if (limited == null || limited.Target != __instance) return true;
             // LoadFileLimited reads the card with LoadCharaFile into its own ChaFileControl
             Limited = null;
-            __result = __instance.LoadFileLimited(filename, limited.Sex, limited.Face, limited.Body, limited.Hair, limited.Parameter, limited.Coordinate);
+            LimitedCardData.Begin(__instance);
+            try
+            {
+                __result = __instance.LoadFileLimited(filename, limited.Sex, limited.Face, limited.Body, limited.Hair, limited.Parameter, limited.Coordinate);
+            }
+            finally
+            {
+                LimitedCardData.End();
+            }
             return false;
         }
 
@@ -77,7 +85,11 @@ namespace AdvancedLoader
         // First: KKAPI reloads plugins in its postfix (KK/KKS). Last: data copied later
         [HarmonyPostfix, HarmonyPriority(Priority.First)]
         [HarmonyPatch(typeof(ChaFileControl), nameof(ChaFileControl.LoadFileLimited), typeof(string), typeof(byte), typeof(bool), typeof(bool), typeof(bool), typeof(bool), typeof(bool))]
-        private static void KeepPluginDataFirstPostfix(ChaFileControl __instance) => KeepPluginData(__instance);
+        private static void KeepPluginDataFirstPostfix(ChaFileControl __instance)
+        {
+            if (!ReadingCard) LimitedCardData.CopyTo(__instance);
+            KeepPluginData(__instance);
+        }
 
         [HarmonyPostfix, HarmonyPriority(Priority.Last)]
         [HarmonyPatch(typeof(ChaFileControl), nameof(ChaFileControl.LoadFileLimited), typeof(string), typeof(byte), typeof(bool), typeof(bool), typeof(bool), typeof(bool), typeof(bool))]

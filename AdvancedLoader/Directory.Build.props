@@ -7,7 +7,7 @@
     <DebugType>embedded</DebugType>
     <RootNamespace>AdvancedLoader</RootNamespace>
 
-    <Version>1.4.0</Version>
+    <Version>1.4.1</Version>
     <AssemblyTitle>Advanced Loader</AssemblyTitle>
     <Product>Advanced Loader</Product>
     <Description>Load chosen parts of character and clothes cards in the character maker</Description>

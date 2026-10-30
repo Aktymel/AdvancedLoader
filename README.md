@@ -69,6 +69,7 @@ Copy the file for your game into `BepInEx\plugins`:
 
 ## Changelog
 
+- 1.4.1 — Plugin data in Studio character load fix.
 - 1.4.0 — Full *Studio* support.
 - 1.3.0 — Full *main game* support.
 - 1.2.0 — *Other plugins* lists every plugin with data on the card and keeps the unticked ones; unticked Material Editor groups stay as they were on Face/Body loads; Koikatsu version, untested AI-Shoujo version.

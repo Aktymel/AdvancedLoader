@@ -31,7 +31,7 @@ namespace AdvancedLoader
     {
         public const string GUID = "com.aktymel.advancedloader";
         public const string PluginName = "Advanced Loader";
-        public const string Version = "1.4.0";
+        public const string Version = "1.4.1";
 
         internal static AdvancedLoaderPlugin Instance;
         internal static new ManualLogSource Logger;
@@ -44,6 +44,7 @@ namespace AdvancedLoader
             Instance = this;
             Logger = base.Logger;
             Settings.Bind(Config);
+            LimitedCardData.Init();
             _window = new AdvancedLoadWindow(this, _panels);
 
             var harmony = Harmony.CreateAndPatchAll(typeof(Hooks), GUID);
