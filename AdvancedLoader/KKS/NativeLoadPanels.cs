@@ -16,6 +16,8 @@ namespace AdvancedLoader
 
         private CustomCharaFile _charaFile;
         private CustomCoordinateFile _coordinateFile;
+        private static CustomCharaFile _startedCharaFile;
+        private static CustomCoordinateFile _startedCoordinateFile;
 
         // Outfit list of the H scene and the scene it belongs to, set by Hooks when it starts
         public static clothesFileControl FreeHPanel;
@@ -70,8 +72,8 @@ namespace AdvancedLoader
             }
 
             Target = MakerAPI.GetCharacterControl();
-            if (_charaFile == null) _charaFile = FindInScene<CustomCharaFile>();
-            if (_coordinateFile == null) _coordinateFile = FindInScene<CustomCoordinateFile>();
+            if (_charaFile == null) _charaFile = _startedCharaFile;
+            if (_coordinateFile == null) _coordinateFile = _startedCoordinateFile;
 
             if (IsLoadShown(_charaFile, CustomFileWindow.FileWindowType.CharaLoad, out var charaList))
             {
@@ -256,16 +258,33 @@ namespace AdvancedLoader
             return clicked;
         }
 
-        private static T FindInScene<T>() where T : Component
+        // The maker's load pages, taken when the game creates them
+        public static void Patch(Harmony harmony)
         {
-            return Resources.FindObjectsOfTypeAll<T>().FirstOrDefault(x => x.gameObject.scene.IsValid());
+            PatchStart(harmony, typeof(CustomCharaFile), nameof(CharaFileStarted));
+            PatchStart(harmony, typeof(CustomCoordinateFile), nameof(CoordinateFileStarted));
         }
+
+        private static void PatchStart(Harmony harmony, System.Type type, string postfix)
+        {
+            var start = AccessTools.Method(type, "Start");
+            if (start == null)
+            {
+                AdvancedLoaderPlugin.Logger.LogWarning($"{type.Name}.Start was not found, the Advanced load button won't show for it");
+                return;
+            }
+            harmony.Patch(start, postfix: new HarmonyMethod(typeof(NativeLoadPanels), postfix));
+        }
+
+        private static void CharaFileStarted(CustomCharaFile __instance) => _startedCharaFile = __instance;
+
+        private static void CoordinateFileStarted(CustomCoordinateFile __instance) => _startedCoordinateFile = __instance;
 
         // Maker hides inactive menus by CanvasGroup alpha
         private static bool IsShownOnScreen(Component component)
         {
             if (component == null || !component.gameObject.activeInHierarchy) return false;
-            foreach (var group in component.GetComponentsInParent<CanvasGroup>())
+            foreach (var group in UiCache.GroupsAbove(component))
             {
                 if (group.alpha <= 0.01f) return false;
                 if (group.ignoreParentGroups) break;

@@ -22,6 +22,7 @@ namespace AdvancedLoader
             Toggle[] toggles = null;
             bool[] previousToggles = null;
             OtherPlugins.State otherPlugins = null;
+            ReloadWait reload = null;
             try
             {
                 var chaCtrl = target;
@@ -34,16 +35,18 @@ namespace AdvancedLoader
                 var loadOutfits = options.Clothes || options.Accessories != AccessoryMode.Keep;
                 var clothesParts = options.Clothes ? options.ClothesParts : ClothesPart.None;
 
-                var materialSnapshot = MaterialEditorPresence.Available && (inStudio || loadOutfits || options.Face || options.Body) ? TakeMaterialSnapshot(chaCtrl, card) : null;
+                var materialSnapshot = TakeMaterialSnapshot(chaCtrl, card);
                 var overlaySnapshot = loadOutfits && Dependencies.ClothesOverlays.IsOk ? ClothesOverlayBridge.TakeSnapshot(chaCtrl) : null;
                 var bonemodSnapshot = TakeBonemodSnapshot(chaCtrl, options, inStudio);
                 Diag.Log($"Character load {System.IO.Path.GetFileName(card.Path)}: studio={inStudio} face={options.Face} body={options.Body} hair={options.Hair} clothes={options.Clothes} " +
                          $"accessories={options.Accessories}; height {chaCtrl.chaFile.custom.body.shapeValueBody[0]}, bonemod snapshot {(bonemodSnapshot == null ? "none" : "taken")}");
                 if (AbmxPresence.Available) Diag.Log($"Bonemod before: {AbmxBridge.DescribeAll(chaCtrl)}");
+                var groupsBefore = AccessoryGroups.Snapshot(chaCtrl, chaCtrl.chaFile.coordinate.Length);
                 var outfitNames = loadOutfits ? Enumerable.Range(0, chaCtrl.chaFile.coordinate.Length).Select(i => Outfits.GetName(chaCtrl, i)).ToList() : null;
 
                 var anyNative = options.Face || options.Body || options.Hair || options.Parameters || loadOutfits || OtherPlugins.AnyLoaded(options, card);
                 OutfitLoadContext outfitContext = null;
+                Func<MaterialGroup, int, bool> materialsFromCard = null;
 
                 if (anyNative)
                 {
@@ -93,19 +96,27 @@ namespace AdvancedLoader
                             Accessories = options.Accessories,
                             Placement = options.Placement,
                             Shift = options.Shift,
-                            SelectedSlots = options.SelectedSlots.ToList()
+                            SelectedSlots = options.SelectedSlots.ToList(),
+                            Groups = groupsBefore,
+                            Blocks = Enumerable.Range(0, card.CardOutfits.Count).ToDictionary(s => s, s => AccessoryGroups.Blocks(AccessoryGroups.Parse(card.GroupsOf(s)), options,
+                                AccessoryData.SourceSlots(options.Accessories, card.CardOutfits[s].Accessories, options.SelectedSlots)))
                         };
                         Hooks.Outfits = outfitContext;
                     }
 
-                    KeepUntickedCharacterMaterials(chaCtrl, options, materialSnapshot, inStudio);
+                    var current = chaCtrl.fileStatus.coordinateType;
+                    var currentFromCard = outfitContext != null && outfitContext.SourceToTarget.ContainsValue(current);
+                    materialsFromCard = MaterialsFromCard(options, currentFromCard ? clothesParts : ClothesPart.None,
+                        () => outfitContext == null ? null : outfitContext.AccessoryTargets.TryGetValue(chaCtrl.fileStatus.coordinateType, out var map) ? map : new Dictionary<int, int>());
+                    KeepMaterials(chaCtrl, materialSnapshot, materialsFromCard);
                     Hooks.Parts = new PartsLoadContext
                     {
-                        Target = chaCtrl.chaFile, BodyParts = options.BodyParts, FaceParts = options.FaceParts,
+                        Target = chaCtrl.chaFile, BodyParts = options.BodyParts, FaceParts = options.FaceParts, HairParts = options.HairParts,
                         KeptPluginData = OtherPlugins.KeptData(chaCtrl, options, card)
                     };
                     try
                     {
+                        reload = ReloadWait.Start(chaCtrl);
                         load();
                     }
                     finally
@@ -116,7 +127,7 @@ namespace AdvancedLoader
                     }
                 }
 
-                for (var i = 0; i < FramesToWaitForPlugins; i++) yield return null;
+                for (var frame = 0; !ReloadWait.Ready(reload, frame); frame++) yield return null;
 
                 if (outfitContext != null && outfitContext.FinalCount > 0)
                 {
@@ -125,24 +136,28 @@ namespace AdvancedLoader
                     if (overlaySnapshot != null && options.Clothes) RebuildOutfitOverlays(chaCtrl, outfitContext, overlaySnapshot);
                 }
 
-                Diag.Log($"After {FramesToWaitForPlugins} frames: height {chaCtrl.chaFile.custom.body.shapeValueBody[0]}");
+                if (anyNative) KeepOutfitAccessoryGroups(chaCtrl, card, options, outfitContext, groupsBefore);
+
+                Diag.Log($"After the wait: height {chaCtrl.chaFile.custom.body.shapeValueBody[0]}");
                 if (AbmxPresence.Available) Diag.Log($"Bonemod loaded: {AbmxBridge.DescribeAll(chaCtrl)}");
                 if (bonemodSnapshot != null) ApplyBonemod(chaCtrl, card, options, bonemodSnapshot, inStudio);
                 if (AbmxPresence.Available) Diag.Log($"Bonemod restored: {AbmxBridge.DescribeAll(chaCtrl)}");
 #if DEBUG
-                // Something applying later would show up here
                 for (var i = 0; i < 60; i++) yield return null;
                 Diag.Log($"60 frames later: height {chaCtrl.chaFile.custom.body.shapeValueBody[0]}");
                 if (AbmxPresence.Available) Diag.Log($"Bonemod 60 frames later: {AbmxBridge.DescribeAll(chaCtrl)}");
 #endif
 
+                if (materialsFromCard == null) materialsFromCard = MaterialsFromCard(options, ClothesPart.None, () => null);
                 if (MaterialEditorPresence.Available)
                 {
-                    if (outfitContext != null && outfitContext.FinalCount > 0) FixOutfitMaterials(chaCtrl, card, outfitContext, materialSnapshot);
+                    if (outfitContext != null && outfitContext.FinalCount > 0) FixOutfitMaterials(chaCtrl, card, options, outfitContext, materialSnapshot);
                     else if (inStudio) KeepAllOutfitMaterials(chaCtrl, card, materialSnapshot);
                     if (inStudio && !options.Hair) KeepHairMaterials(chaCtrl, materialSnapshot);
                     KeepHeadMaterialsOnNewHead(chaCtrl, options, materialSnapshot);
-                    ApplyCharacterMaterialGroups(chaCtrl, card, options, outfitContext);
+                    MoveMaterialsToNewParts(chaCtrl, materialSnapshot, materialsFromCard);
+                    ApplyCharacterMaterialGroups(chaCtrl, card, options, outfitContext, materialsFromCard);
+                    KeepUntickedHairMaterials(chaCtrl, options, materialSnapshot);
                 }
 
                 AdvancedLoaderPlugin.Logger.LogMessage($"Loaded {System.IO.Path.GetFileName(card.Path)}");
@@ -152,7 +167,8 @@ namespace AdvancedLoader
                 if (toggles != null && previousToggles != null)
                     for (var i = 0; i < toggles.Length && i < previousToggles.Length; i++) SetToggle(toggles, i, previousToggles[i]);
                 OtherPlugins.Restore(otherPlugins);
-                StopKeepingCharacterMaterials();
+                StopKeepingMaterials();
+                reload?.Stop();
                 Busy = false;
             }
         }
@@ -161,6 +177,7 @@ namespace AdvancedLoader
         {
             if (Busy) yield break;
             Busy = true;
+            ReloadWait reload = null;
             Toggle[] toggles = null;
             bool[] previousToggles = null;
             try
@@ -169,10 +186,12 @@ namespace AdvancedLoader
                 var inMaker = MakerAPI.InsideAndLoaded;
                 // No load toggles outside maker, so plugins take all clothes and accessories from the card
                 var pluginsLoadAll = !inMaker;
-                var materialSnapshot = TakeMaterialSnapshot(chaCtrl, card, options, pluginsLoadAll);
+                var materialSnapshot = TakeMaterialSnapshot(chaCtrl, card);
                 var overlaySnapshot = TakeOverlaySnapshot(chaCtrl, options, pluginsLoadAll);
                 var clothesFromCard = options.Clothes ? options.ClothesParts : ClothesPart.None;
                 var studioCharacter = StudioOutfitPanel.CharacterOf(chaCtrl);
+                var outfit = chaCtrl.fileStatus.coordinateType;
+                var groupsBefore = AccessoryGroups.Get(chaCtrl, outfit);
 
                 // The original window has one Load button with Clothes and Accessories toggles
                 var mode = options.Accessories;
@@ -180,7 +199,9 @@ namespace AdvancedLoader
                 var loadAccessories = mode != AccessoryMode.Keep;
                 var needsHook = loadAccessories && !options.ReplacesAllAccessories;
                 AccessoryLoadContext context = null;
+                var materialsFromCard = MaterialsFromCard(options, clothesFromCard, () => context?.TargetToSource);
 
+                if (loadClothes || loadAccessories) reload = ReloadWait.Start(chaCtrl);
                 if (loadClothes || loadAccessories)
                 {
                     var page = inMaker ? Resources.FindObjectsOfTypeAll<CustomCoordinateFile>().FirstOrDefault(x => x.gameObject.scene.IsValid()) : null;
@@ -202,6 +223,7 @@ namespace AdvancedLoader
                     }
                     if (loadClothes || studioCharacter != null)
                         Hooks.Parts = new PartsLoadContext { CoordinateTarget = chaCtrl.nowCoordinate, ClothesParts = clothesFromCard };
+                    KeepMaterials(chaCtrl, materialSnapshot, materialsFromCard);
                     try
                     {
                         if (studioCharacter != null)
@@ -222,15 +244,20 @@ namespace AdvancedLoader
                     }
                 }
 
-                for (var i = 0; i < FramesToWaitForPlugins; i++) yield return null;
+                for (var frame = 0; !ReloadWait.Ready(reload, frame); frame++) yield return null;
 
                 KeepUntickedClothesOverlays(chaCtrl, clothesFromCard, overlaySnapshot);
+                if (loadClothes || loadAccessories)
+                    KeepAccessoryGroups(chaCtrl, outfit, groupsBefore, CardGroups(card, 0, options), context?.TargetToSource, options.ReplacesAllAccessories,
+                        AccessoryData.ReadSlots(chaCtrl.nowCoordinate));
 
                 if (MaterialEditorPresence.Available)
                 {
                     if (options.Clothes || pluginsLoadAll) KeepUntickedClothesMaterials(chaCtrl, clothesFromCard, materialSnapshot);
                     if (pluginsLoadAll && !loadAccessories) KeepAllAccessoryMaterials(chaCtrl, materialSnapshot);
+                    MoveMaterialsToNewParts(chaCtrl, materialSnapshot, materialsFromCard);
                     ApplyMaterialGroups(chaCtrl, card, options.MaterialGroups & MaterialGroup.Clothes, options.MaterialCleanCopy);
+                    PasteMaterialsOnWornParts(chaCtrl, card, options, materialsFromCard);
                     if (options.MaterialFollowAccessories && context?.Result != null)
                         FixAccessoryMaterials(chaCtrl, card, context, materialSnapshot, replacedByGame: loadAccessories);
                 }
@@ -241,21 +268,27 @@ namespace AdvancedLoader
             {
                 if (toggles != null && previousToggles != null)
                     for (var i = 0; i < toggles.Length && i < previousToggles.Length; i++) SetToggle(toggles, i, previousToggles[i]);
+                StopKeepingMaterials();
+                reload?.Stop();
                 Busy = false;
             }
         }
 
-        private static object TakeMaterialSnapshot(ChaControl chaCtrl, CardData card)
+        private static void KeepOutfitAccessoryGroups(ChaControl chaCtrl, CardData card, LoadOptions options, OutfitLoadContext context, Dictionary<int, string> before)
         {
-            try
+            if (!AccessoryGroups.Available) return;
+            var sourceFor = context != null && context.FinalCount > 0 ? context.SourceToTarget.ToDictionary(x => x.Value, x => x.Key) : new Dictionary<int, int>();
+            var count = chaCtrl.chaFile.coordinate.Length;
+            for (var t = 0; t < count; t++)
             {
-                return MaterialEditorBridge.Snapshot(chaCtrl, card.Materials);
+                var coordinate = t == chaCtrl.fileStatus.coordinateType ? chaCtrl.nowCoordinate : chaCtrl.chaFile.coordinate[t];
+                before.TryGetValue(t, out var kept);
+                if (sourceFor.TryGetValue(t, out var s) && context.AccessoryTargets.TryGetValue(t, out var targetToSource))
+                    KeepAccessoryGroups(chaCtrl, t, kept, CardGroups(card, s, options), targetToSource, options.ReplacesAllAccessories, AccessoryData.ReadSlots(coordinate));
+                else
+                    KeepAccessoryGroups(chaCtrl, t, kept, null, null, false, AccessoryData.ReadSlots(coordinate));
             }
-            catch (Exception ex)
-            {
-                AdvancedLoaderPlugin.Logger.LogWarning($"Could not read current Material Editor data: {ex.Message}");
-                return null;
-            }
+            foreach (var outfit in card.OutfitGroups.Keys.Where(x => x >= count).ToList()) AccessoryGroups.Set(chaCtrl, outfit, null);
         }
 
         private static void KeepOutfitNames(ChaControl chaCtrl, CardData card, OutfitLoadContext context, List<string> namesBefore)
@@ -290,20 +323,21 @@ namespace AdvancedLoader
             }
         }
 
-        private static void FixOutfitMaterials(ChaControl chaCtrl, CardData card, OutfitLoadContext context, object snapshot)
+        private static void FixOutfitMaterials(ChaControl chaCtrl, CardData card, LoadOptions options, OutfitLoadContext context, object snapshot)
         {
             if (snapshot == null) return;
             try
             {
                 var current = chaCtrl.fileStatus.coordinateType;
                 var sourceFor = context.SourceToTarget.ToDictionary(x => x.Value, x => x.Key);
-                var keptPieces = new HashSet<int>(ClothesParts.UntickedSlots(context.ClothesParts));
+                var keptPieces = new HashSet<int>((options.MaterialGroups & MaterialGroup.Clothes) != 0
+                    ? ClothesParts.UntickedSlots(context.ClothesParts) : Enumerable.Range(0, ClothesParts.Count));
                 var allPieces = Enumerable.Range(0, ClothesParts.Count).ToList();
 
                 for (var t = 0; t < context.FinalCount; t++)
                 {
                     var hasSource = sourceFor.TryGetValue(t, out var s);
-                    var accessoryMap = hasSource && context.AccessoryTargets.TryGetValue(t, out var map) ? map : new Dictionary<int, int>();
+                    var accessoryMap = hasSource && options.MaterialFollowAccessories && context.AccessoryTargets.TryGetValue(t, out var map) ? map : new Dictionary<int, int>();
                     var slotCount = Math.Max(AccessoryData.VanillaSlotCount, t < chaCtrl.chaFile.coordinate.Length ? chaCtrl.chaFile.coordinate[t].accessory.parts.Length : 0);
                     var keptAccessories = Enumerable.Range(0, slotCount).Where(x => !accessoryMap.ContainsKey(x)).ToList();
 
@@ -377,7 +411,7 @@ namespace AdvancedLoader
         private static bool IsClothing(KK_Plugins.MaterialEditor.MaterialEditorCharaController.ObjectType type) =>
             type == KK_Plugins.MaterialEditor.MaterialEditorCharaController.ObjectType.Clothing;
 
-        private static void ApplyCharacterMaterialGroups(ChaControl chaCtrl, CardData card, LoadOptions options, OutfitLoadContext context)
+        private static void ApplyCharacterMaterialGroups(ChaControl chaCtrl, CardData card, LoadOptions options, OutfitLoadContext context, Func<MaterialGroup, int, bool> fromCard)
         {
             if (options.MaterialGroups == MaterialGroup.None) return;
             try
@@ -385,6 +419,7 @@ namespace AdvancedLoader
                 var current = chaCtrl.fileStatus.coordinateType;
                 var source = context?.SourceToTarget.Where(x => x.Value == current).Select(x => (int?)x.Key).FirstOrDefault() ?? 0;
                 MaterialEditorBridge.ApplyGroups(chaCtrl, card.Materials, options.MaterialGroups, options.MaterialCleanCopy, source);
+                PasteMaterialsOnWornParts(chaCtrl, card, options, fromCard, source);
             }
             catch (Exception ex)
             {

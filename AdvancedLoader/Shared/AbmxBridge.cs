@@ -32,8 +32,6 @@ namespace AdvancedLoader
 
         public const string DataId = KKABMX_Core.ExtDataGUID;
 
-        // Card data for ABMX with the character's own body and face bones: ABMX would put the card's on the bones for a few frames,
-        // and joints the game doesn't recalculate keep that scale. Ticked parts are taken from the card afterwards (Apply)
         public static PluginData KeepBodyBones(ChaControl chaCtrl, PluginData cardData)
         {
             var controller = chaCtrl == null ? null : chaCtrl.GetComponent<BoneController>();
@@ -119,7 +117,6 @@ namespace AdvancedLoader
 
         private static bool Same(BoneModifier a, BoneModifier b) => Describe(a) == Describe(b);
 
-        // For the diagnostic log: body bonemod as it is now
         public static string DescribeAll(ChaControl chaCtrl)
         {
             var controller = chaCtrl.GetComponent<BoneController>();

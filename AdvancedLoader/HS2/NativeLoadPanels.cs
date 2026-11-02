@@ -17,6 +17,8 @@ namespace AdvancedLoader
 
         private CustomCharaWindow _charaLoadWindow;
         private CustomClothesWindow _clothesLoadWindow;
+        private static CvsO_CharaLoad _charaLoad;
+        private static CvsC_ClothesLoad _clothesLoad;
         private CustomClothesScrollController _clothesScroll;
 
         public LoadMode? OpenMode { get; private set; }
@@ -101,16 +103,16 @@ namespace AdvancedLoader
         private static Rect? FreeHPanelRect()
         {
             if (MakerAPI.InsideAndLoaded || FreeHPanel == null) return null;
-            var canvas = FreeHPanel.GetComponentInParent<Canvas>();
+            var canvas = UiCache.CanvasOf(FreeHPanel);
             if (canvas == null) return null;
             var camera = canvas.renderMode == RenderMode.ScreenSpaceOverlay ? null : canvas.worldCamera;
 
             Rect? result = null;
-            var characterCard = FreeHPanel.transform.parent == null ? null : FreeHPanel.transform.parent.Find("CharacterCard");
+            var characterCard = FreeHPanel.transform.parent == null ? null : UiCache.Child(FreeHPanel.transform.parent, "CharacterCard");
             foreach (var card in new[] { FreeHPanel.transform, characterCard })
             {
                 if (card == null || !card.gameObject.activeInHierarchy) continue;
-                foreach (var part in new[] { card.Find("CoodenatePanel"), card.Find("CardImageBG") })
+                foreach (var part in new[] { UiCache.Child(card, "CoodenatePanel"), UiCache.Child(card, "CardImageBG") })
                     result = Union(result, ScreenRect(part as RectTransform, camera));
             }
             return result ?? ScreenRect(FreeHPanel.transform as RectTransform, camera);
@@ -143,8 +145,8 @@ namespace AdvancedLoader
             }
 
             Target = MakerAPI.GetCharacterControl();
-            if (_charaLoadWindow == null) _charaLoadWindow = FindLoadWindow<CvsO_CharaLoad, CustomCharaWindow>("charaLoadWin");
-            if (_clothesLoadWindow == null) _clothesLoadWindow = FindLoadWindow<CvsC_ClothesLoad, CustomClothesWindow>("clothesLoadWin");
+            if (_charaLoadWindow == null && _charaLoad != null) _charaLoadWindow = Traverse.Create(_charaLoad).Field("charaLoadWin").GetValue<CustomCharaWindow>();
+            if (_clothesLoadWindow == null && _clothesLoad != null) _clothesLoadWindow = Traverse.Create(_clothesLoad).Field("clothesLoadWin").GetValue<CustomClothesWindow>();
 
             if (IsShownOnScreen(_charaLoadWindow))
             {
@@ -265,17 +267,33 @@ namespace AdvancedLoader
             return clicked;
         }
 
-        private static TWindow FindLoadWindow<TCanvas, TWindow>(string fieldName) where TCanvas : Component where TWindow : Component
+        // The maker's load windows, taken when the game creates them
+        public static void Patch(Harmony harmony)
         {
-            var canvas = Resources.FindObjectsOfTypeAll<TCanvas>().FirstOrDefault(x => x.gameObject.scene.IsValid());
-            return canvas == null ? null : Traverse.Create(canvas).Field(fieldName).GetValue<TWindow>();
+            PatchStart(harmony, typeof(CvsO_CharaLoad), nameof(CharaLoadStarted));
+            PatchStart(harmony, typeof(CvsC_ClothesLoad), nameof(ClothesLoadStarted));
         }
+
+        private static void PatchStart(Harmony harmony, System.Type type, string postfix)
+        {
+            var start = AccessTools.Method(type, "Start");
+            if (start == null)
+            {
+                AdvancedLoaderPlugin.Logger.LogWarning($"{type.Name}.Start was not found, the Advanced load button won't show for it");
+                return;
+            }
+            harmony.Patch(start, postfix: new HarmonyMethod(typeof(NativeLoadPanels), postfix));
+        }
+
+        private static void CharaLoadStarted(CvsO_CharaLoad __instance) => _charaLoad = __instance;
+
+        private static void ClothesLoadStarted(CvsC_ClothesLoad __instance) => _clothesLoad = __instance;
 
         // Maker hides inactive menus by CanvasGroup alpha
         private static bool IsShownOnScreen(Component component)
         {
             if (component == null || !component.gameObject.activeInHierarchy) return false;
-            foreach (var group in component.GetComponentsInParent<CanvasGroup>())
+            foreach (var group in UiCache.GroupsAbove(component))
             {
                 if (group.alpha <= 0.01f) return false;
                 if (group.ignoreParentGroups) break;

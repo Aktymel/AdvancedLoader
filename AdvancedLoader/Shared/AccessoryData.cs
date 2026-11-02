@@ -27,13 +27,38 @@ namespace AdvancedLoader
             return copy;
         }
 
-        public static Dictionary<int, int> MapTargets(AccessoryPlacement placement, int shift, IList<bool> occupied, IEnumerable<int> sourceSlots)
+        // blocks: card groups loaded as a group; in free slots each goes whole into the first run of free slots it fits in
+        public static Dictionary<int, int> MapTargets(AccessoryPlacement placement, int shift, IList<bool> occupied, IEnumerable<int> sourceSlots,
+            IEnumerable<IList<int>> blocks = null)
         {
             var map = new Dictionary<int, int>();
             var used = new HashSet<int>();
+            bool Free(int slot) => !(slot < occupied.Count && occupied[slot]) && !used.Contains(slot);
+            void Place(int source, int target)
+            {
+                if (target < 0 || (target >= VanillaSlotCount && !MoreAccessoriesBridge.Available)) return;
+                used.Add(target);
+                map[source] = target;
+            }
+
+            var blockOf = new Dictionary<int, IList<int>>();
+            if (placement == AccessoryPlacement.FreeSlots && blocks != null)
+                foreach (var block in blocks)
+                    foreach (var slot in block) blockOf[slot] = block;
+            var placedBlocks = new HashSet<IList<int>>();
+
             var nextFree = 0;
             foreach (var source in sourceSlots)
             {
+                if (blockOf.TryGetValue(source, out var group))
+                {
+                    if (!placedBlocks.Add(group)) continue;
+                    var start = 0;
+                    while (!Enumerable.Range(start, group.Count).All(Free)) start++;
+                    for (var i = 0; i < group.Count; i++) Place(group[i], start + i);
+                    continue;
+                }
+
                 int target;
                 switch (placement)
                 {
@@ -41,16 +66,14 @@ namespace AdvancedLoader
                         target = source + shift;
                         break;
                     case AccessoryPlacement.FreeSlots:
-                        while ((nextFree < occupied.Count && occupied[nextFree]) || used.Contains(nextFree)) nextFree++;
+                        while (!Free(nextFree)) nextFree++;
                         target = nextFree;
                         break;
                     default:
                         target = source;
                         break;
                 }
-                if (target < 0 || (target >= VanillaSlotCount && !MoreAccessoriesBridge.Available)) continue;
-                used.Add(target);
-                map[source] = target;
+                Place(source, target);
             }
             return map;
         }
@@ -70,7 +93,7 @@ namespace AdvancedLoader
 
         public static List<ChaFileAccessory.PartsInfo> Combine(AccessoryMode mode, AccessoryPlacement placement, int shift,
             List<ChaFileAccessory.PartsInfo> current, List<ChaFileAccessory.PartsInfo> card, IEnumerable<int> selectedSlots,
-            out Dictionary<int, int> targetToSource)
+            out Dictionary<int, int> targetToSource, string groups = null, IEnumerable<IList<int>> blocks = null)
         {
             targetToSource = new Dictionary<int, int>();
             if (mode == AccessoryMode.Keep) return current.Select(Clone).ToList();
@@ -83,7 +106,8 @@ namespace AdvancedLoader
 
             var result = current.Select(Clone).ToList();
             var occupied = current.Select(x => !IsEmpty(x)).ToList();
-            foreach (var pair in MapTargets(placement, shift, occupied, SourceSlots(mode, card, selectedSlots)))
+            AccessoryGroups.Reserve(occupied, groups);
+            foreach (var pair in MapTargets(placement, shift, occupied, SourceSlots(mode, card, selectedSlots), blocks))
             {
                 while (result.Count <= pair.Value) result.Add(new ChaFileAccessory.PartsInfo());
                 result[pair.Value] = pair.Key < card.Count ? Clone(card[pair.Key]) : new ChaFileAccessory.PartsInfo();

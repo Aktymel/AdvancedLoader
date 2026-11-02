@@ -7,8 +7,6 @@ using AIChara;
 
 namespace AdvancedLoader
 {
-    // LoadFileLimited reads the card into its own ChaFileControl and copies only the game parts. The maker's plugins read the card
-    // from MakerAPI.LastLoadedChaFile; Studio's read the character, so the card's plugin data is copied to it like a full load would
     internal static class LimitedCardData
     {
         private static ChaFile _target;
@@ -37,7 +35,6 @@ namespace AdvancedLoader
             _card = null;
         }
 
-        // In the first LoadFileLimited postfix: before unticked plugins get their data back and before plugins reload
         public static void CopyTo(ChaFile target)
         {
             if (_card == null || target != _target) return;

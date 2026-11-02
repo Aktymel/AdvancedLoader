@@ -22,7 +22,15 @@ namespace AdvancedLoader
         }
 
         // Same check as BrowserFolders
-        private static Studio.CharaList Shown => Lists.FirstOrDefault(x => x != null && x.isActiveAndEnabled);
+        private static Studio.CharaList Shown
+        {
+            get
+            {
+                foreach (var list in Lists)
+                    if (list != null && list.isActiveAndEnabled) return list;
+                return null;
+            }
+        }
 
         public static bool IsShown => Shown != null;
 

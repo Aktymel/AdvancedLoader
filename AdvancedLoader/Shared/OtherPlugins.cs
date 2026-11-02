@@ -36,6 +36,7 @@ namespace AdvancedLoader
             yield return Dependencies.MaterialEditor.GUID;
             if (AbmxPresence.Available) yield return Dependencies.Abmx.GUID;
             yield return Dependencies.MoreAccessories.GUID;
+            if (AccessoryGroups.Available) yield return AccessoryGroups.GUID;
 #if KKS || KK
             yield return Dependencies.MoreOutfits.GUID;
 #endif
@@ -97,6 +98,11 @@ namespace AdvancedLoader
         }
 
         public static bool AnyLoaded(LoadOptions options, CardData card) => Entries.Any(x => Loads(options, card, x));
+
+        private static readonly string[] AccessorySlotDataIds = { "com.deathweasel.bepinex.hairaccessorycustomizer", "Accessory_States", "madevil.kk.ass" };
+
+        public static List<string> AccessorySlotDataNames(CardData card) =>
+            Entries.Where(x => AccessorySlotDataIds.Contains(x.Id) && card.PluginDataIds.Contains(x.Id)).Select(x => x.Name).ToList();
 
         // Some plugins (Uncensor Selector) ignore MaintainState
         public static Dictionary<string, PluginData> KeptData(ChaControl chaCtrl, LoadOptions options, CardData card)

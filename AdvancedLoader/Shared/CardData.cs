@@ -26,6 +26,16 @@ namespace AdvancedLoader
 
         public readonly HashSet<string> PluginDataIds = new HashSet<string>();
 
+        public Dictionary<int, string> OutfitGroups = new Dictionary<int, string>();
+        public List<AccessoryGroup> SlotGroups = new List<AccessoryGroup>();
+
+        public HashSet<int> CharacterAccessories = new HashSet<int>();
+
+        // object: no Additional Accessory Controls types here
+        public object[] AacSlots;
+
+        public string GroupsOf(int outfit) => OutfitGroups.TryGetValue(outfit, out var groups) ? groups : null;
+
 #if KKS || KK
         public List<CardOutfit> CardOutfits = new List<CardOutfit>();
 
@@ -35,6 +45,7 @@ namespace AdvancedLoader
             AccessorySlots = CardOutfits[index].Accessories;
             SlotNames.Clear();
             SlotNames.AddRange(CardOutfits[index].SlotNames);
+            SlotGroups = AccessoryGroups.Parse(GroupsOf(index));
         }
 #endif
 
@@ -47,6 +58,38 @@ namespace AdvancedLoader
             void Inspect(ChaFileControl temp)
             {
                 if (mode == LoadMode.Character) ReadPluginDataIds(card, temp);
+                else AddPluginDataIds(card, ExtendedSave.GetAllExtendedData(AccessoryData.CardCoordinate(temp)));
+                try
+                {
+                    if (mode == LoadMode.Character) card.OutfitGroups = AccessoryGroups.ReadCharacter(temp);
+                    else card.OutfitGroups[0] = AccessoryGroups.ReadCoordinate(AccessoryData.CardCoordinate(temp));
+                }
+                catch (Exception ex)
+                {
+                    AdvancedLoaderPlugin.Logger.LogWarning($"Could not read accessory groups from {path}: {ex.Message}");
+                }
+                if (mode == LoadMode.Character && AacBridge.Available)
+                {
+                    try
+                    {
+                        card.CharacterAccessories = AacBridge.ReadCardFlags(temp);
+                    }
+                    catch (Exception ex)
+                    {
+                        AdvancedLoaderPlugin.Logger.LogWarning($"Could not read character accessories from {path}: {ex.Message}");
+                    }
+                }
+                if (AacBridge.Available)
+                {
+                    try
+                    {
+                        card.AacSlots = mode == LoadMode.Character ? AacBridge.ReadCardSlots(temp) : AacBridge.ReadCardSlots(AccessoryData.CardCoordinate(temp));
+                    }
+                    catch (Exception ex)
+                    {
+                        AdvancedLoaderPlugin.Logger.LogWarning($"Could not read Additional Accessory Controls settings from {path}: {ex.Message}");
+                    }
+                }
 #if KKS || KK
                 if (mode == LoadMode.Character)
                 {
@@ -104,6 +147,7 @@ namespace AdvancedLoader
                         card.SlotNames.Add(new KeyValuePair<int, string>(i, $"{i + 1:00}.  {AccessoryData.GetName(card.AccessorySlots[i])}"));
                 }
             }
+            card.SlotGroups = AccessoryGroups.Parse(card.GroupsOf(0));
             return card;
         }
 

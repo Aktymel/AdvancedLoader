@@ -15,6 +15,8 @@ namespace AdvancedLoader
         public AccessoryPlacement Placement;
         public int Shift;
         public IEnumerable<int> SelectedSlots;
+        public Dictionary<int, string> Groups;
+        public Dictionary<int, List<IList<int>>> Blocks;
 
         public List<byte[]> Before;
         public Dictionary<int, Dictionary<int, int>> AccessoryTargets = new Dictionary<int, Dictionary<int, int>>();
@@ -32,6 +34,7 @@ namespace AdvancedLoader
         private static List<ChaFileAccessory.PartsInfo> _before;
         private static ChaFileBody _bodyBefore;
         private static ChaFileFace _faceBefore;
+        private static ChaFileHair _hairBefore;
         private static ChaFileClothes _clothesBefore;
         private static ChaFile _pendingTarget;
         private static List<ChaFileAccessory.PartsInfo> _pendingResult;
@@ -96,6 +99,7 @@ namespace AdvancedLoader
         {
             _bodyBefore = null;
             _faceBefore = null;
+            _hairBefore = null;
             if (ReadingCard) return;
 
             if (Parts != null && Parts.Target == __instance)
@@ -103,6 +107,7 @@ namespace AdvancedLoader
                 // LoadFileLimited replaces these objects instead of changing them, so keeping the references is enough
                 if (Parts.BodyParts != BodyPart.All) _bodyBefore = __instance.custom.body;
                 if (Parts.FaceParts != FacePart.All) _faceBefore = __instance.custom.face;
+                if (Parts.HairParts != HairPart.All) _hairBefore = __instance.custom.hair;
             }
 
             if (Outfits != null && Outfits.Target == __instance)
@@ -142,14 +147,14 @@ namespace AdvancedLoader
 #else
         [HarmonyPatch(typeof(ChaFileControl), nameof(ChaFileControl.LoadFileLimited), typeof(string), typeof(byte), typeof(bool), typeof(bool), typeof(bool), typeof(bool), typeof(bool), typeof(bool))]
 #endif
-        private static void LoadFileLimitedPostfix(ChaFileControl __instance, bool face, bool body, bool coordinate)
+        private static void LoadFileLimitedPostfix(ChaFileControl __instance, bool face, bool body, bool hair, bool coordinate)
         {
             if (ReadingCard) return;
-            RestoreUntickedParts(__instance, face, body);
+            RestoreUntickedParts(__instance, face, body, hair);
             if (coordinate && Outfits != null && Outfits.Target == __instance && Outfits.Before != null) RebuildOutfits(__instance, Outfits);
         }
 
-        private static void RestoreUntickedParts(ChaFileControl target, bool face, bool body)
+        private static void RestoreUntickedParts(ChaFileControl target, bool face, bool body, bool hair)
         {
             try
             {
@@ -157,15 +162,18 @@ namespace AdvancedLoader
                     BodyFaceParts.RestoreUnticked(target.custom.body, _bodyBefore, Parts.BodyParts);
                 if (face && _faceBefore != null && target.custom.face != _faceBefore)
                     BodyFaceParts.RestoreUnticked(target.custom.face, _faceBefore, Parts.FaceParts);
+                if (hair && _hairBefore != null && target.custom.hair != _hairBefore)
+                    HairParts.RestoreUnticked(target.custom.hair, _hairBefore, Parts.HairParts);
             }
             catch (Exception ex)
             {
-                AdvancedLoaderPlugin.Logger.LogError($"Failed to keep body/face parts: {ex}");
+                AdvancedLoaderPlugin.Logger.LogError($"Failed to keep body/face/hair parts: {ex}");
             }
             finally
             {
                 _bodyBefore = null;
                 _faceBefore = null;
+                _hairBefore = null;
             }
         }
 
@@ -194,7 +202,9 @@ namespace AdvancedLoader
                     if (context.ClothesParts != ClothesPart.All) ClothesParts.RestoreUnticked(loaded.clothes, kept.clothes, context.ClothesParts);
 
                     var accessories = AccessoryData.Combine(context.Accessories, context.Placement, context.Shift, AccessoryData.ReadSlots(kept),
-                        context.CardOutfits[s].Accessories, context.SelectedSlots, out var targetToSource);
+                        context.CardOutfits[s].Accessories, context.SelectedSlots, out var targetToSource,
+                        context.Groups != null && context.Groups.TryGetValue(t, out var groups) ? groups : null,
+                        context.Blocks != null && context.Blocks.TryGetValue(s, out var blocks) ? blocks : null);
                     AccessoryData.Write(loaded, accessories);
                     context.AccessoryTargets[t] = targetToSource;
                     outfits[t] = loaded;
@@ -212,7 +222,7 @@ namespace AdvancedLoader
 
         private static void RestoreUntickedClothes(ChaFileClothes loaded)
         {
-            if (_clothesBefore == null) return;
+            if (_clothesBefore == null || Parts == null) return;
             try
             {
                 ClothesParts.RestoreUnticked(loaded, _clothesBefore, Parts.ClothesParts);
@@ -270,7 +280,7 @@ namespace AdvancedLoader
             {
                 var context = Active;
                 var result = AccessoryData.Combine(context.Mode, context.Placement, context.Shift, before,
-                    context.CardSlots ?? new List<ChaFileAccessory.PartsInfo>(), context.SelectedSlots, out var targetToSource);
+                    context.CardSlots ?? new List<ChaFileAccessory.PartsInfo>(), context.SelectedSlots, out var targetToSource, context.Groups, context.Blocks);
                 context.Result = result;
                 context.TargetToSource = targetToSource;
                 _pendingTarget = target;

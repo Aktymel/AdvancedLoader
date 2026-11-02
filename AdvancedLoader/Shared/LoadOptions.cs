@@ -32,7 +32,8 @@ namespace AdvancedLoader
         Head = 2,
         Eyes = 4,
         Hair = 8,
-        Clothes = 16
+        Clothes = 16,
+        Accessories = 32
     }
 
     internal sealed class LoadOptions
@@ -46,9 +47,11 @@ namespace AdvancedLoader
         public BodyPart BodyParts = BodyPart.All;
         public FacePart FaceParts = FacePart.All;
         public ClothesPart ClothesParts = ClothesPart.All;
+        public HairPart HairParts = HairPart.All;
 
         public AccessoryMode Accessories = AccessoryMode.Keep;
         public readonly HashSet<int> SelectedSlots = new HashSet<int>();
+        public readonly HashSet<int> SelectedGroups = new HashSet<int>();
         public AccessoryPlacement Placement = AccessoryPlacement.SameSlots;
         public int Shift = 10;
 
@@ -58,6 +61,12 @@ namespace AdvancedLoader
         public OutfitPlacement OutfitPlacement = OutfitPlacement.SameSlots;
         public int OutfitShift = 4;
 #endif
+
+        public void ClearSlots()
+        {
+            SelectedSlots.Clear();
+            SelectedGroups.Clear();
+        }
 
         public bool ReplacesAllAccessories => Accessories == AccessoryMode.All && Placement == AccessoryPlacement.SameSlots;
 
@@ -78,7 +87,7 @@ namespace AdvancedLoader
             var values = new Dictionary<string, object>
             {
                 { "Face", Face }, { "Body", Body }, { "Hair", Hair }, { "Parameters", Parameters }, { "Clothes", Clothes },
-                { "FaceParts", (int)FaceParts }, { "BodyParts", (int)BodyParts }, { "ClothesParts", (int)ClothesParts },
+                { "FaceParts", (int)FaceParts }, { "BodyParts", (int)BodyParts }, { "ClothesParts", (int)ClothesParts }, { "HairParts", (int)HairParts },
                 { "Accessories", (int)Accessories }, { "Placement", (int)Placement }, { "Shift", Shift },
 #if KKS || KK
                 { "OutfitSelection", (int)OutfitSelection }, { "OutfitPlacement", (int)OutfitPlacement }, { "OutfitShift", OutfitShift },
@@ -107,6 +116,7 @@ namespace AdvancedLoader
             FaceParts = (FacePart)Read(values, "FaceParts", (int)FaceParts);
             BodyParts = (BodyPart)Read(values, "BodyParts", (int)BodyParts);
             ClothesParts = (ClothesPart)Read(values, "ClothesParts", (int)ClothesParts);
+            HairParts = (HairPart)Read(values, "HairParts", (int)HairParts);
             Accessories = (AccessoryMode)Read(values, "Accessories", (int)Accessories);
             Placement = (AccessoryPlacement)Read(values, "Placement", (int)Placement);
             Shift = Read(values, "Shift", Shift);

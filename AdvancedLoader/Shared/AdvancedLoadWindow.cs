@@ -44,6 +44,8 @@ namespace AdvancedLoader
         private Vector2 _scroll;
         // Card slot -> character slot for the current options, refreshed every frame for the preview
         private Dictionary<int, int> _targets = new Dictionary<int, int>();
+        private bool _targetsDirty = true;
+        private bool _wasShown;
         // Card slots the current options would load, and how many character slots are free
         private int _sourceCount;
         private int _freeSlots;
@@ -52,6 +54,7 @@ namespace AdvancedLoader
         private bool _faceExpanded;
         private bool _bodyExpanded;
         private bool _clothesExpanded;
+        private bool _hairExpanded;
 
         public AdvancedLoadWindow(AdvancedLoaderPlugin plugin, NativeLoadPanels panels)
         {
@@ -60,6 +63,13 @@ namespace AdvancedLoader
             if (Settings.RememberTicks.Value)
                 foreach (var options in _options)
                     options.Value.Load(Settings.SavedTicks(options.Key));
+
+            AccessoriesApi.AccessoryKindChanged += (sender, args) => _targetsDirty = true;
+            AccessoriesApi.AccessoryTransferred += (sender, args) => _targetsDirty = true;
+#if KKS || KK
+            AccessoriesApi.AccessoriesCopied += (sender, args) => _targetsDirty = true;
+#endif
+            MakerAPI.ReloadCustomInterface += (sender, args) => _targetsDirty = true;
         }
 
         public void SaveTicks()
@@ -78,12 +88,21 @@ namespace AdvancedLoader
             Visible = false;
             SaveTicks();
             _card = null;
-            foreach (var options in _options.Values) options.SelectedSlots.Clear();
+            foreach (var options in _options.Values) options.ClearSlots();
         }
 
         public void Update()
         {
-            if (!Shown) return;
+            if (!Shown)
+            {
+                _wasShown = false;
+                return;
+            }
+            if (!_wasShown)
+            {
+                _wasShown = true;
+                _targetsDirty = true;
+            }
 
             var mode = _panels.OpenMode.Value;
             var path = _panels.SelectedPath;
@@ -91,10 +110,12 @@ namespace AdvancedLoader
             {
                 _mode = mode;
                 _card = null;
+                _targetsDirty = true;
             }
 
             if (path == null)
             {
+                if (_card != null) _targetsDirty = true;
                 _card = null;
             }
             else if (_card == null || _card.Path != path)
@@ -105,9 +126,12 @@ namespace AdvancedLoader
                 _shownOutfit = -1;
                 Options.SelectedOutfits.Clear();
 #endif
-                Options.SelectedSlots.Clear();
+                Options.ClearSlots();
+                _targetsDirty = true;
             }
 
+            if (!_targetsDirty) return;
+            _targetsDirty = false;
             UpdateTargets();
         }
 
@@ -116,7 +140,9 @@ namespace AdvancedLoader
             var options = Options;
             var chaCtrl = _panels.Target;
             var occupancyOf = chaCtrl == null ? null : chaCtrl.nowCoordinate;
+            var groupsOutfit = 0;
 #if KKS || KK
+            if (chaCtrl != null) groupsOutfit = chaCtrl.fileStatus.coordinateType;
             if (chaCtrl != null && _mode == LoadMode.Character && _card != null && _card.CardOutfits.Count > 0)
             {
                 _outfitTargets = Outfits.MapTargets(options, _card.CardOutfits.Count, chaCtrl.chaFile.coordinate.Length);
@@ -129,13 +155,14 @@ namespace AdvancedLoader
                 {
                     _shownOutfit = shown;
                     _card.ShowOutfit(shown);
-                    options.SelectedSlots.Clear();
+                    options.ClearSlots();
                 }
 
                 // Free slots are counted in the outfit the shown card outfit is loaded into
                 occupancyOf = _outfitTargets.TryGetValue(shown, out var target) && target < chaCtrl.chaFile.coordinate.Length
                     ? chaCtrl.chaFile.coordinate[target]
                     : new ChaFileCoordinate();
+                groupsOutfit = _outfitTargets.TryGetValue(shown, out var groupsTarget) ? groupsTarget : -1;
             }
             else
             {
@@ -149,11 +176,12 @@ namespace AdvancedLoader
                 return;
             }
             var occupied = AccessoryData.ReadOccupancy(occupancyOf, chaCtrl.chaFile);
+            if (groupsOutfit >= 0) AccessoryGroups.Reserve(occupied, AccessoryGroups.Get(chaCtrl, groupsOutfit));
             var sources = AccessoryData.SourceSlots(options.Accessories, _card.AccessorySlots, options.SelectedSlots);
             var sourceList = sources.ToList();
             _sourceCount = sourceList.Count;
             _freeSlots = occupied.Take(AccessoryData.VanillaSlotCount).Count(x => !x) + Mathf.Max(0, AccessoryData.VanillaSlotCount - occupied.Count);
-            _targets = AccessoryData.MapTargets(options.Placement, options.Shift, occupied, sourceList);
+            _targets = AccessoryData.MapTargets(options.Placement, options.Shift, occupied, sourceList, AccessoryGroups.Blocks(_card.SlotGroups, options, sourceList));
         }
 
         public void OnGUI()
@@ -183,7 +211,7 @@ namespace AdvancedLoader
         private void DrawWindow(int id)
         {
             GUILayout.BeginHorizontal();
-            GUILayout.Label(_card == null ? "Select a card in the list." : CardTitle());
+            GUILayout.Label(_card == null ? "Select a card in the list." : CardTitle(), GUILayout.MinWidth(0));
             GUILayout.FlexibleSpace();
             if (ConfigManagerBridge.Available && GUILayout.Button("s", GUILayout.Width(26))) ConfigManagerBridge.Open(AdvancedLoaderPlugin.PluginName);
             if (GUILayout.Button("X", GUILayout.Width(26)))
@@ -193,16 +221,19 @@ namespace AdvancedLoader
             }
             GUILayout.EndHorizontal();
 
-            _scroll = GUILayout.BeginScrollView(_scroll);
+            _scroll = GUILayout.BeginScrollView(_scroll, false, false, GUIStyle.none, GUI.skin.verticalScrollbar);
+            GUILayout.BeginVertical(GUILayout.Width(_rect.width - 40));
             DrawOptions();
+            GUILayout.EndVertical();
             GUILayout.EndScrollView();
 
-            GUILayout.Label(Summary());
+            GUILayout.Label(Summary(), GUILayout.MinWidth(0));
             var enabled = GUI.enabled;
             GUI.enabled = CanLoad();
             if (GUILayout.Button(LoadRunner.Busy ? "Loading…" : "Load", GUILayout.Height(30))) StartLoad();
             GUI.enabled = enabled;
 
+            if (GUI.changed) _targetsDirty = true;
             _rect = IMGUIUtils.DragResizeEatWindow(id, _rect);
         }
 
@@ -227,7 +258,7 @@ namespace AdvancedLoader
                     DrawWarning(Dependencies.Abmx.Warning(Dependencies.Abmx.State == DependencyState.TooOld
                         ? "bonemod sliders are not loaded by category. Use the \"Face Bonemod\" / \"Body Bonemod\" toggles under Other plugins instead."
                         : "bonemod sliders are not loaded."));
-                options.Hair = GUILayout.Toggle(options.Hair, " Hair");
+                DrawHair(options);
                 var enabled = GUI.enabled;
                 GUI.enabled = canLoadParameters;
                 options.Parameters = GUILayout.Toggle(options.Parameters && canLoadParameters, canLoadParameters ? " Parameters" : " Parameters (new characters only)");
@@ -249,6 +280,11 @@ namespace AdvancedLoader
             if (options.Accessories != AccessoryMode.Keep)
                 DrawWarning(Dependencies.MoreAccessories.Warning("only accessory slots 1-20 can be used."));
             if (options.Accessories != AccessoryMode.Keep) DrawPlacement(options);
+            if (options.Accessories != AccessoryMode.Keep && !options.ReplacesAllAccessories && _card != null)
+            {
+                var names = OtherPlugins.AccessorySlotDataNames(_card);
+                if (names.Count > 0) DrawWarning($"{string.Join(", ", names.ToArray())}: accessory settings don't follow the selected accessories.");
+            }
             if (options.Accessories == AccessoryMode.Selected) DrawAccessorySlots(options);
             else if (options.Accessories == AccessoryMode.All && options.Placement != AccessoryPlacement.SameSlots) DrawTargetSummary();
             EndSection();
@@ -292,7 +328,7 @@ namespace AdvancedLoader
             options.Face = options.Body = options.Hair = options.Clothes = on;
             options.Parameters = parameters;
             // Same as unticking each one
-            if (!on) _faceExpanded = _bodyExpanded = _clothesExpanded = false;
+            if (!on) _faceExpanded = _bodyExpanded = _hairExpanded = _clothesExpanded = false;
         }
 
         private void DrawFace(LoadOptions options)
@@ -346,6 +382,32 @@ namespace AdvancedLoader
                 GUILayout.EndHorizontal();
             }
             DrawAllNone(() => options.BodyParts = BodyPart.All, () => options.BodyParts = BodyPart.None);
+            GUI.enabled = enabled;
+        }
+
+        private void DrawHair(LoadOptions options)
+        {
+            GUILayout.BeginHorizontal();
+            var hair = GUILayout.Toggle(options.Hair, " Hair" + PartCount(options.HairParts == HairPart.All, HairParts.Describe(options.HairParts)));
+            if (options.Hair && !hair) _hairExpanded = false;
+            options.Hair = hair;
+            GUILayout.FlexibleSpace();
+            if (GUILayout.Button(_hairExpanded ? "Hide parts" : "Parts...", GUILayout.Width(80))) _hairExpanded = !_hairExpanded;
+            GUILayout.EndHorizontal();
+            if (!_hairExpanded) return;
+
+            var enabled = GUI.enabled;
+            GUI.enabled = options.Hair;
+            foreach (var part in HairParts.PartNames)
+            {
+                var isOn = (options.HairParts & part.Key) != 0;
+                GUILayout.BeginHorizontal();
+                GUILayout.Space(20);
+                if (GUILayout.Toggle(isOn, " " + part.Value) != isOn)
+                    options.HairParts = isOn ? options.HairParts & ~part.Key : options.HairParts | part.Key;
+                GUILayout.EndHorizontal();
+            }
+            DrawAllNone(() => options.HairParts = HairPart.All, () => options.HairParts = HairPart.None);
             GUI.enabled = enabled;
         }
 
@@ -554,18 +616,54 @@ namespace AdvancedLoader
             }
 
             GUILayout.BeginHorizontal();
-            if (GUILayout.Button("All", GUILayout.Width(50))) options.SelectedSlots.UnionWith(_card.SlotNames.Select(x => x.Key));
-            if (GUILayout.Button("None", GUILayout.Width(50))) options.SelectedSlots.Clear();
+            if (GUILayout.Button("All", GUILayout.Width(50)))
+            {
+                options.SelectedSlots.UnionWith(_card.SlotNames.Select(x => x.Key));
+                options.SelectedGroups.UnionWith(_card.SlotGroups.Select(x => x.First));
+            }
+            if (GUILayout.Button("None", GUILayout.Width(50))) options.ClearSlots();
             GUILayout.Label($"{options.SelectedSlots.Count} / {_card.SlotNames.Count} selected");
             GUILayout.EndHorizontal();
 
-            foreach (var slot in _card.SlotNames)
+            var groups = _card.SlotGroups;
+            if (groups.Count == 0)
             {
-                var isOn = options.SelectedSlots.Contains(slot.Key);
-                if (GUILayout.Toggle(isOn, isOn ? slot.Value + TargetText(slot.Key) : slot.Value) == isOn) continue;
-                if (isOn) options.SelectedSlots.Remove(slot.Key);
-                else options.SelectedSlots.Add(slot.Key);
+                foreach (var slot in _card.SlotNames) DrawSlot(options, slot, false);
+                return;
             }
+
+            foreach (var group in groups)
+                DrawSlotGroup(options, string.IsNullOrEmpty(group.Name) ? "Group" : group.Name, _card.SlotNames.Where(x => group.Contains(x.Key)).ToList(), group.First);
+            DrawSlotGroup(options, "Ungrouped", _card.SlotNames.Where(x => !groups.Any(g => g.Contains(x.Key))).ToList(), -1);
+        }
+
+        private GUIStyle _groupToggleStyle;
+
+        private void DrawSlotGroup(LoadOptions options, string name, List<KeyValuePair<int, string>> slots, int group)
+        {
+            if (slots.Count == 0) return;
+            if (_groupToggleStyle == null) _groupToggleStyle = new GUIStyle(GUI.skin.toggle) { fontStyle = FontStyle.Bold };
+            var isOn = group >= 0 ? options.SelectedGroups.Contains(group) : slots.All(x => options.SelectedSlots.Contains(x.Key));
+            if (GUILayout.Toggle(isOn, $" {name} ({slots.Count})", _groupToggleStyle) != isOn)
+            {
+                if (isOn) options.SelectedSlots.ExceptWith(slots.Select(x => x.Key));
+                else options.SelectedSlots.UnionWith(slots.Select(x => x.Key));
+                if (group >= 0 && isOn) options.SelectedGroups.Remove(group);
+                else if (group >= 0) options.SelectedGroups.Add(group);
+            }
+            foreach (var slot in slots) DrawSlot(options, slot, true);
+        }
+
+        private void DrawSlot(LoadOptions options, KeyValuePair<int, string> slot, bool indent)
+        {
+            var isOn = options.SelectedSlots.Contains(slot.Key);
+            GUILayout.BeginHorizontal();
+            if (indent) GUILayout.Space(20);
+            var on = GUILayout.Toggle(isOn, isOn ? slot.Value + TargetText(slot.Key) : slot.Value);
+            GUILayout.EndHorizontal();
+            if (on == isOn) return;
+            if (isOn) options.SelectedSlots.Remove(slot.Key);
+            else options.SelectedSlots.Add(slot.Key);
         }
 
         private static void DrawGroupToggle(LoadOptions options, MaterialGroup group, string text)
@@ -602,7 +700,8 @@ namespace AdvancedLoader
                     parts.Add(options.FaceParts == FacePart.All ? "Face" : $"Face ({BodyFaceParts.Describe(options.FaceParts)})");
                 if (options.Body && options.BodyParts != BodyPart.None)
                     parts.Add(options.BodyParts == BodyPart.All ? "Body" : $"Body ({BodyFaceParts.Describe(options.BodyParts)})");
-                if (options.Hair) parts.Add("Hair");
+                if (options.Hair && options.HairParts != HairPart.None)
+                    parts.Add(options.HairParts == HairPart.All ? "Hair" : $"Hair ({HairParts.Describe(options.HairParts)})");
                 if (options.Parameters && CanLoadParameters) parts.Add("Parameters");
             }
             if (options.Clothes && options.ClothesParts != ClothesPart.None)
@@ -643,10 +742,11 @@ namespace AdvancedLoader
         private IEnumerator LoadAndFinish(LoadMode mode, IEnumerator load)
         {
             yield return _plugin.StartCoroutine(load);
+            _targetsDirty = true;
             switch (Settings.AfterLoadAction.Value)
             {
                 case AfterLoad.ClearSelection:
-                    _options[mode].SelectedSlots.Clear();
+                    _options[mode].ClearSlots();
 #if KKS || KK
                     _options[mode].SelectedOutfits.Clear();
 #endif

@@ -14,6 +14,8 @@ namespace AdvancedLoader
         public int Shift;
         public IEnumerable<int> SelectedSlots;
         public List<ChaFileAccessory.PartsInfo> CardSlots;
+        public string Groups;
+        public List<IList<int>> Blocks;
 
         public List<ChaFileAccessory.PartsInfo> Result;
 
@@ -27,6 +29,7 @@ namespace AdvancedLoader
         public BodyPart BodyParts = BodyPart.All;
         public FacePart FaceParts = FacePart.All;
         public ClothesPart ClothesParts = ClothesPart.All;
+        public HairPart HairParts = HairPart.All;
         public Dictionary<string, PluginData> KeptPluginData;
     }
 

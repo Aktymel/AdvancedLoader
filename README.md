@@ -2,8 +2,7 @@
 
 A plugin that loads only specific parts of a card without overwriting the rest.
 
-Supported games: Honey Select 2, Koikatsu Sunshine, Koikatsu.
-Also built for AI-Shoujo, but not tested there yet.
+Supported games: Honey Select 2, AI-Shoujo, Koikatsu Sunshine, Koikatsu.
 
 | Honey Select 2 | Koikatsu Sunshine |
 |---|---|
@@ -13,10 +12,12 @@ Also built for AI-Shoujo, but not tested there yet.
 
 - **Advanced load** button to open new menu for loading specific features from card without breaking currently loaded card.
 - **Body categories** (Breast, Legs, Eyes, Nose, Makeup…), including the ABMX bonemod sliders.
-- **Clothes categories** (Top, Bottom, Inner top/bottom, Gloves, Pantyhose, Socks, Shoes), including their Material Editor data and clothes overlays.
+- **Clothes categories** (Top, Bottom, Inner top/bottom, Gloves, Pantyhose, Socks, Shoes).
 - **Accessories**: select which accessories to copy, then either overwrite the old ones or put them into free slots.
-- **Material Editor groups** (Body, Head, Eyes, Hair, Clothes)
-- **Other plugins**: every plugin with data on the card is listed.
+- **Hair categories** (Back, Front, Side, Extension).
+- **Material Editor groups** (Body, Head, Eyes, Hair, Clothes): you can chose whether you want to load ME or not.
+- **Other plugins**: select which plugin you also want to load or skip.
+- **Advanced Accessories Menu**: integration with my other plugin to load groups.
 
 
 
@@ -38,22 +39,16 @@ Also built for AI-Shoujo, but not tested there yet.
 ## Requirements
 
 - [BepInEx](https://github.com/BepInEx/BepInEx) 5.4
-- [HS2API / KKSAPI / AIAPI](https://github.com/IllusionMods/IllusionModdingAPI) 1.48 or newer, KKAPI 1.42.2 or newer
+- [HS2API / KKSAPI / AIAPI](https://github.com/IllusionMods/IllusionModdingAPI) 1.48+, KKAPI 1.42.2+
 
 ## Installation
 
-Copy the file for your game into `BepInEx\plugins`:
-
-- Honey Select 2: `HS2_AdvancedLoader.dll`
-- Koikatsu Sunshine: `KKS_AdvancedLoader.dll`
-- AI-Shoujo (not tested): `AI_AdvancedLoader.dll`
-- Koikatsu: `KK_AdvancedLoader.dll`
+Copy the file for your game into `BepInEx\plugins`.
 
 ## Usage
 
-1. In the character maker open *Load character* or *Clothes > Load*, the outfit list in the main game, or *Change character* / *Clothes* in Studio.
-2. Click the **Advanced load** button and select a card in the game's list.
-3. Tick what to load and press **Load** in **Advanced load**.
+1. When loading character or clothes, click the **Advanced** button to open Advanced Loader.
+2. Tick what to load and press **Load**.
 - The game's original load windows are not changed.
 
 ## Compatibility
@@ -65,10 +60,12 @@ Copy the file for your game into `BepInEx\plugins`:
 | [ABMX](https://github.com/ManlyMarco/ABMX) | 5.2.2+ | 5.4+ |
 | [Overlay Mods](https://github.com/ManlyMarco/Illusion-Overlay-Mods) | 6.3+ | 6.2+ |
 | [More Outfit Slots](https://github.com/IllusionMods/KK_Plugins) | — | 1.1.2+ |
-| [Maker/Studio Browser Folders](https://github.com/ManlyMarco/Illusion_BrowserFolders) | ✓ | ✓ |
+| [Additional Accessory Controls](https://github.com/OrangeSpork/AdditionalAccessoryControls) | 1.2.5+ | — |
+| [Advanced Accessories Menu](https://github.com/Aktymel/AdvancedAccessoriesMenu) | 0.1.1+ | 0.1.1+ |
 
 ## Changelog
 
+- 1.5.0 — Hair categories, AAM integration, ME fixes.
 - 1.4.2 — Bonemod in Studio character load fix.
 - 1.4.1 — Plugin data in Studio character load fix.
 - 1.4.0 — Full *Studio* support.

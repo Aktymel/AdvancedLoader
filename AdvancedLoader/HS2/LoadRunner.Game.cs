@@ -22,6 +22,7 @@ namespace AdvancedLoader
             Toggle[] toggles = null;
             bool[] previousToggles = null;
             OtherPlugins.State otherPlugins = null;
+            ReloadWait reload = null;
             try
             {
                 var chaCtrl = target;
@@ -30,9 +31,14 @@ namespace AdvancedLoader
                 var inStudio = studioCharacter != null;
                 if (chaCtrl == null || (!MakerAPI.InsideAndLoaded && !inStudio)) yield break;
 
-                var materialSnapshot = TakeMaterialSnapshot(chaCtrl, card, options, inStudio);
+                if (MaterialEditorPresence.Available) MaterialEditorBridge.LogHair(chaCtrl, "before character load");
+                var materialSnapshot = TakeMaterialSnapshot(chaCtrl, card);
                 var overlaySnapshot = TakeOverlaySnapshot(chaCtrl, options);
                 var bonemodSnapshot = TakeBonemodSnapshot(chaCtrl, options, inStudio);
+                var groupsBefore = AccessoryGroups.Get(chaCtrl, 0);
+                AacBridge.LogFlags(chaCtrl, "before character load");
+                var characterAccessories = !options.Clothes && options.Accessories == AccessoryMode.Keep ? null : AacBridge.Flags(chaCtrl);
+                var aacSlots = AacBridge.TakeSlots(chaCtrl);
 
                 // The game's "Clothes" flag loads clothes and all accessories together; everything else goes through the hook
                 var accessoryMode = options.Accessories;
@@ -40,6 +46,7 @@ namespace AdvancedLoader
                 // Other plugins' data (e.g. overlays) comes with the game's load even when no game part is ticked
                 var anyNative = options.Face || options.Body || options.Hair || options.Parameters || options.Clothes || OtherPlugins.AnyLoaded(options, card);
                 AccessoryLoadContext context = null;
+                var materialsFromCard = MaterialsFromCard(options, options.Clothes ? options.ClothesParts : ClothesPart.None, () => context?.TargetToSource);
 
                 if (anyNative || needsHook)
                 {
@@ -89,14 +96,15 @@ namespace AdvancedLoader
                         Hooks.Active = context;
                     }
 
-                    KeepUntickedCharacterMaterials(chaCtrl, options, materialSnapshot, inStudio);
+                    KeepMaterials(chaCtrl, materialSnapshot, materialsFromCard);
                     Hooks.Parts = new PartsLoadContext
                     {
                         Target = chaCtrl.chaFile, BodyParts = options.BodyParts, FaceParts = options.FaceParts, ClothesParts = options.ClothesParts,
-                        KeptPluginData = OtherPlugins.KeptData(chaCtrl, options, card)
+                        HairParts = options.HairParts, KeptPluginData = OtherPlugins.KeptData(chaCtrl, options, card)
                     };
                     try
                     {
+                        reload = ReloadWait.Start(chaCtrl);
                         load();
                     }
                     finally
@@ -107,9 +115,12 @@ namespace AdvancedLoader
                     }
                 }
 
-                for (var i = 0; i < FramesToWaitForPlugins; i++) yield return null;
+                for (var frame = 0; !ReloadWait.Ready(reload, frame); frame++) yield return null;
 
                 KeepUntickedClothesOverlays(chaCtrl, options.ClothesParts, overlaySnapshot);
+                if (anyNative || needsHook)
+                    KeepAccessoryGroups(chaCtrl, 0, groupsBefore, CardGroups(card, 0, options), context?.TargetToSource, options.ReplacesAllAccessories,
+                        AccessoryData.ReadSlots(chaCtrl.nowCoordinate, chaCtrl.chaFile));
 
                 if (bonemodSnapshot != null) ApplyBonemod(chaCtrl, card, options, bonemodSnapshot, inStudio);
 
@@ -118,12 +129,20 @@ namespace AdvancedLoader
                     if (inStudio) KeepUnloadedPartMaterials(chaCtrl, options, materialSnapshot);
                     else if (options.Clothes) KeepUntickedClothesMaterials(chaCtrl, options.ClothesParts, materialSnapshot);
                     KeepHeadMaterialsOnNewHead(chaCtrl, options, materialSnapshot);
+                    MoveMaterialsToNewParts(chaCtrl, materialSnapshot, materialsFromCard);
                     ApplyMaterialGroups(chaCtrl, card, options.MaterialGroups, options.MaterialCleanCopy);
+                    PasteMaterialsOnWornParts(chaCtrl, card, options, materialsFromCard);
+                    KeepUntickedHairMaterials(chaCtrl, options, materialSnapshot);
                     // With "Clothes" the game (and Material Editor) replaced every accessory slot, in Studio always
                     if (options.MaterialFollowAccessories && context?.Result != null)
                         FixAccessoryMaterials(chaCtrl, card, context, materialSnapshot, replacedByGame: options.Clothes || inStudio);
                 }
+                if (MaterialEditorPresence.Available) MaterialEditorBridge.LogHair(chaCtrl, "after character load");
 
+                AacBridge.PlaceSlots(chaCtrl, aacSlots, card.AacSlots, context?.TargetToSource, options.OtherPlugins.TryGetValue(AacBridge.GUID, out var aacFromCard) && aacFromCard, false);
+                AacBridge.SetFlags(chaCtrl, characterAccessories, context?.TargetToSource, options.Clothes && options.ReplacesAllAccessories,
+                    CardCharacterAccessories(card, options));
+                AacBridge.LogFlags(chaCtrl, "after character load");
                 AdvancedLoaderPlugin.Logger.LogMessage($"Loaded {System.IO.Path.GetFileName(card.Path)}");
             }
             finally
@@ -131,7 +150,8 @@ namespace AdvancedLoader
                 if (toggles != null && previousToggles != null)
                     for (var i = 0; i < toggles.Length && i < previousToggles.Length; i++) SetToggle(toggles, i, previousToggles[i]);
                 OtherPlugins.Restore(otherPlugins);
-                StopKeepingCharacterMaterials();
+                StopKeepingMaterials();
+                reload?.Stop();
                 Busy = false;
             }
         }
@@ -140,15 +160,24 @@ namespace AdvancedLoader
         {
             if (Busy) yield break;
             Busy = true;
+            ReloadWait reload = null;
+            bool[] characterAccessories = null;
+            object[] aacSlots = null;
+            AccessoryLoadContext context = null;
             try
             {
                 var chaCtrl = target;
                 var inMaker = MakerAPI.InsideAndLoaded;
                 // No load buttons outside maker, so plugins take all clothes and accessories from the card
                 var pluginsLoadAll = !inMaker;
-                var materialSnapshot = TakeMaterialSnapshot(chaCtrl, card, options, pluginsLoadAll);
+                var materialSnapshot = TakeMaterialSnapshot(chaCtrl, card);
                 var overlaySnapshot = TakeOverlaySnapshot(chaCtrl, options, pluginsLoadAll);
                 var clothesFromCard = options.Clothes ? options.ClothesParts : ClothesPart.None;
+                var materialsFromCard = MaterialsFromCard(options, clothesFromCard, () => context?.TargetToSource);
+                var groupsBefore = AccessoryGroups.Get(chaCtrl, 0);
+                AacBridge.LogFlags(chaCtrl, "before outfit load");
+                aacSlots = AacBridge.TakeSlots(chaCtrl);
+                characterAccessories = HoldCharacterAccessories(chaCtrl, card, options);
 
                 // The original window has three buttons: 1 = clothes only, 2 = accessories only, 3 = both
                 var mode = options.Accessories;
@@ -156,7 +185,6 @@ namespace AdvancedLoader
                 if (options.Clothes) button = options.ReplacesAllAccessories ? 3 : 1;
                 else button = mode == AccessoryMode.Keep ? 0 : 2;
                 var needsHook = mode != AccessoryMode.Keep && !options.ReplacesAllAccessories;
-                AccessoryLoadContext context = null;
 
                 if (button != 0)
                 {
@@ -170,12 +198,14 @@ namespace AdvancedLoader
                         Hooks.Active = context;
                     }
 
+                    KeepMaterials(chaCtrl, materialSnapshot, materialsFromCard);
                     // Button 2 keeps all current clothes anyway
                     if (button != 2) Hooks.Parts = new PartsLoadContext { CoordinateTarget = chaCtrl.nowCoordinate, ClothesParts = options.ClothesParts };
                     try
                     {
                         if (inMaker) SetCoordinateButtonClicked(button);
                         var info = new CustomClothesFileInfo { FullPath = card.Path, FileName = System.IO.Path.GetFileName(card.Path) };
+                        reload = ReloadWait.Start(chaCtrl);
                         if (onClick != null) onClick(info);
                         else if (inMaker) LoadCoordinateLikeGame(chaCtrl, card.Path, button);
                         else LoadCoordinateInH(chaCtrl, card.Path, button);
@@ -187,15 +217,20 @@ namespace AdvancedLoader
                     }
                 }
 
-                for (var i = 0; i < FramesToWaitForPlugins; i++) yield return null;
+                for (var frame = 0; !ReloadWait.Ready(reload, frame); frame++) yield return null;
 
                 KeepUntickedClothesOverlays(chaCtrl, clothesFromCard, overlaySnapshot);
+                if (button != 0)
+                    KeepAccessoryGroups(chaCtrl, 0, groupsBefore, CardGroups(card, 0, options), context?.TargetToSource, options.ReplacesAllAccessories,
+                        AccessoryData.ReadSlots(chaCtrl.nowCoordinate, chaCtrl.chaFile));
 
                 if (MaterialEditorPresence.Available)
                 {
                     if (options.Clothes || pluginsLoadAll) KeepUntickedClothesMaterials(chaCtrl, clothesFromCard, materialSnapshot);
                     if (pluginsLoadAll && mode == AccessoryMode.Keep) KeepAllAccessoryMaterials(chaCtrl, materialSnapshot);
+                    MoveMaterialsToNewParts(chaCtrl, materialSnapshot, materialsFromCard);
                     ApplyMaterialGroups(chaCtrl, card, options.MaterialGroups & MaterialGroup.Clothes, options.MaterialCleanCopy);
+                    PasteMaterialsOnWornParts(chaCtrl, card, options, materialsFromCard);
                     if (options.MaterialFollowAccessories && context?.Result != null)
                         FixAccessoryMaterials(chaCtrl, card, context, materialSnapshot, replacedByGame: pluginsLoadAll || button == 2 || button == 3);
                 }
@@ -204,6 +239,11 @@ namespace AdvancedLoader
             }
             finally
             {
+                AacBridge.PlaceSlots(target, aacSlots, card.AacSlots, context?.TargetToSource, true, true);
+                AacBridge.SetFlags(target, characterAccessories, context?.TargetToSource, false, null);
+                AacBridge.LogFlags(target, "after outfit load");
+                StopKeepingMaterials();
+                reload?.Stop();
                 Busy = false;
             }
         }

@@ -15,6 +15,7 @@ namespace AdvancedLoader
         private static List<ChaFileAccessory.PartsInfo> _before;
         private static ChaFileBody _bodyBefore;
         private static ChaFileFace _faceBefore;
+        private static ChaFileHair _hairBefore;
         private static ChaFileClothes.PartsInfo[] _clothesBefore;
         private static ChaFile _pendingTarget;
         private static List<ChaFileAccessory.PartsInfo> _pendingResult;
@@ -70,11 +71,14 @@ namespace AdvancedLoader
             _before = null;
             _bodyBefore = null;
             _faceBefore = null;
+            _hairBefore = null;
+            _clothesBefore = null;
             if (Parts != null && !ReadingCard && Parts.Target == __instance)
             {
                 // LoadFileLimited replaces these objects instead of changing them, so keeping the references is enough
                 if (Parts.BodyParts != BodyPart.All) _bodyBefore = __instance.custom.body;
                 if (Parts.FaceParts != FacePart.All) _faceBefore = __instance.custom.face;
+                if (Parts.HairParts != HairPart.All) _hairBefore = __instance.custom.hair;
                 _clothesBefore = Parts.ClothesParts != ClothesPart.All ? ClothesParts.Copy(__instance.coordinate.clothes) : null;
             }
 
@@ -103,16 +107,17 @@ namespace AdvancedLoader
 
         [HarmonyPostfix]
         [HarmonyPatch(typeof(ChaFileControl), nameof(ChaFileControl.LoadFileLimited), typeof(string), typeof(byte), typeof(bool), typeof(bool), typeof(bool), typeof(bool), typeof(bool))]
-        private static void LoadFileLimitedPostfix(ChaFileControl __instance, bool face, bool body, bool coordinate)
+        private static void LoadFileLimitedPostfix(ChaFileControl __instance, bool face, bool body, bool hair, bool coordinate)
         {
-            RestoreUntickedParts(__instance, face, body);
+            RestoreUntickedParts(__instance, face, body, hair);
             if (coordinate) RestoreUntickedClothes(__instance.coordinate.clothes);
+            _clothesBefore = null;
             if (_before == null) return;
             var result = PrepareResult(__instance);
             if (result != null) AccessoryData.Write(__instance, result);
         }
 
-        private static void RestoreUntickedParts(ChaFileControl target, bool face, bool body)
+        private static void RestoreUntickedParts(ChaFileControl target, bool face, bool body, bool hair)
         {
             try
             {
@@ -120,21 +125,24 @@ namespace AdvancedLoader
                     BodyFaceParts.RestoreUnticked(target.custom.body, _bodyBefore, Parts.BodyParts);
                 if (face && _faceBefore != null && target.custom.face != _faceBefore)
                     BodyFaceParts.RestoreUnticked(target.custom.face, _faceBefore, Parts.FaceParts);
+                if (hair && _hairBefore != null && target.custom.hair != _hairBefore)
+                    HairParts.RestoreUnticked(target.custom.hair, _hairBefore, Parts.HairParts);
             }
             catch (Exception ex)
             {
-                AdvancedLoaderPlugin.Logger.LogError($"Failed to keep body/face parts: {ex}");
+                AdvancedLoaderPlugin.Logger.LogError($"Failed to keep body/face/hair parts: {ex}");
             }
             finally
             {
                 _bodyBefore = null;
                 _faceBefore = null;
+                _hairBefore = null;
             }
         }
 
         private static void RestoreUntickedClothes(ChaFileClothes loaded)
         {
-            if (_clothesBefore == null) return;
+            if (_clothesBefore == null || Parts == null) return;
             try
             {
                 ClothesParts.RestoreUnticked(loaded, _clothesBefore, Parts.ClothesParts);
@@ -190,7 +198,7 @@ namespace AdvancedLoader
             {
                 var context = Active;
                 var result = AccessoryData.Combine(context.Mode, context.Placement, context.Shift, before,
-                    context.CardSlots ?? new List<ChaFileAccessory.PartsInfo>(), context.SelectedSlots, out var targetToSource);
+                    context.CardSlots ?? new List<ChaFileAccessory.PartsInfo>(), context.SelectedSlots, out var targetToSource, context.Groups, context.Blocks);
                 context.Result = result;
                 context.TargetToSource = targetToSource;
                 _pendingTarget = target;

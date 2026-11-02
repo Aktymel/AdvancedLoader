@@ -11,9 +11,6 @@ namespace AdvancedLoader
 {
     internal static partial class LoadRunner
     {
-        // Material Editor and other controllers apply card data a frame or more after Reload
-        private const int FramesToWaitForPlugins = 6;
-
         public static bool Busy { get; private set; }
 
         private static void SetToggle(Toggle[] toggles, int index, bool value)
@@ -21,12 +18,28 @@ namespace AdvancedLoader
             if (toggles != null && index < toggles.Length && toggles[index] != null) toggles[index].isOn = value;
         }
 
-        private static object TakeMaterialSnapshot(ChaControl chaCtrl, CardData card, LoadOptions options, bool always = false)
+        private static bool[] HoldCharacterAccessories(ChaControl chaCtrl, CardData card, LoadOptions options)
         {
-            // Accessories, and Face/Body (ME replaces body/head/eye materials)
+            if (options.ReplacesAllAccessories || !AacBridge.Available) return null;
+            var before = AacBridge.Flags(chaCtrl);
+            ICollection<int> replaced = new int[0];
+            if (options.Accessories != AccessoryMode.Keep)
+            {
+                AccessoryData.Combine(options.Accessories, options.Placement, options.Shift, AccessoryData.ReadSlots(chaCtrl.nowCoordinate, chaCtrl.chaFile),
+                    card.AccessorySlots ?? new List<ChaFileAccessory.PartsInfo>(), options.SelectedSlots, out var targetToSource,
+                    AccessoryGroups.Get(chaCtrl, CurrentOutfit(chaCtrl) ?? 0), CardBlocks(card, options));
+                replaced = targetToSource.Keys;
+            }
+            AacBridge.Hold(chaCtrl, replaced);
+            return before;
+        }
+
+        private static ICollection<int> CardCharacterAccessories(CardData card, LoadOptions options) =>
+            options.OtherPlugins.TryGetValue(AacBridge.GUID, out var load) && load ? card.CharacterAccessories : null;
+
+        private static object TakeMaterialSnapshot(ChaControl chaCtrl, CardData card)
+        {
             if (!MaterialEditorPresence.Available) return null;
-            var keepsClothes = options.Clothes && options.ClothesParts != ClothesPart.All;
-            if (!always && !(options.MaterialFollowAccessories || options.Face || options.Body || keepsClothes)) return null;
             try
             {
                 return MaterialEditorBridge.Snapshot(chaCtrl, card.Materials);
@@ -36,6 +49,27 @@ namespace AdvancedLoader
                 AdvancedLoaderPlugin.Logger.LogWarning($"Could not read current Material Editor data: {(ex.InnerException ?? ex).Message}");
                 return null;
             }
+        }
+
+        // Material Editor data comes from the card only where its group is ticked (accessories: "follow their accessories"); everything else keeps the character's
+        private static Func<MaterialGroup, int, bool> MaterialsFromCard(LoadOptions options, ClothesPart clothesFromCard, Func<IDictionary<int, int>> accessoryTargets)
+        {
+            return (group, slot) =>
+            {
+                switch (group)
+                {
+                    case MaterialGroup.Hair:
+                        return (options.MaterialGroups & MaterialGroup.Hair) != 0 && (!options.Hair || (options.HairParts & (HairPart)(1 << slot)) != 0);
+                    case MaterialGroup.Clothes:
+                        return (options.MaterialGroups & MaterialGroup.Clothes) != 0 && (clothesFromCard == ClothesPart.None || (clothesFromCard & (ClothesPart)(1 << slot)) != 0);
+                    case MaterialGroup.Accessories:
+                        if (!options.MaterialFollowAccessories || options.Accessories == AccessoryMode.Keep) return false;
+                        var map = accessoryTargets?.Invoke();
+                        return map == null ? options.ReplacesAllAccessories : map.ContainsKey(slot);
+                    default:
+                        return (options.MaterialGroups & group) != 0;
+                }
+            };
         }
 
         private static object TakeBonemodSnapshot(ChaControl chaCtrl, LoadOptions options, bool always = false)
@@ -67,12 +101,9 @@ namespace AdvancedLoader
             }
         }
 
-        // allLoaded: without load flags ME replaces body/head/eye materials on every load
-        private static void KeepUntickedCharacterMaterials(ChaControl chaCtrl, LoadOptions options, object snapshot, bool allLoaded = false)
+        private static void KeepMaterials(ChaControl chaCtrl, object snapshot, Func<MaterialGroup, int, bool> fromCard)
         {
-            if (!MaterialEditorPresence.Available || snapshot == null || !(allLoaded || options.Face || options.Body)) return;
-            var keep = (MaterialGroup.Body | MaterialGroup.Head | MaterialGroup.Eyes) & ~options.MaterialGroups;
-            if (keep != MaterialGroup.None) MaterialEditorBridge.KeepCharacterGroupsOnLoad(chaCtrl, snapshot, keep);
+            if (MaterialEditorPresence.Available && snapshot != null && fromCard != null) MaterialEditorBridge.KeepOnLoad(chaCtrl, snapshot, fromCard);
         }
 
         // Without load flags ME takes hair, clothes and accessories from the card too; the ones that were not loaded get their data back
@@ -97,6 +128,21 @@ namespace AdvancedLoader
             }
         }
 
+        private static bool KeepsHairParts(LoadOptions options) => options.Hair && options.HairParts != HairPart.All;
+
+        private static void KeepUntickedHairMaterials(ChaControl chaCtrl, LoadOptions options, object snapshot)
+        {
+            if (snapshot == null || !KeepsHairParts(options)) return;
+            try
+            {
+                MaterialEditorBridge.ApplyHairSlots(chaCtrl, HairParts.UntickedSlots(options.HairParts).ToDictionary(x => x, x => snapshot));
+            }
+            catch (Exception ex)
+            {
+                AdvancedLoaderPlugin.Logger.LogError($"Failed to keep hair Material Editor data: {ex}");
+            }
+        }
+
         // A new face type brings a head whose materials have other names, so ME has nothing to put the kept data on
         private static void KeepHeadMaterialsOnNewHead(ChaControl chaCtrl, LoadOptions options, object snapshot)
         {
@@ -113,7 +159,33 @@ namespace AdvancedLoader
             }
         }
 
-        private static void StopKeepingCharacterMaterials()
+        private static void MoveMaterialsToNewParts(ChaControl chaCtrl, object snapshot, Func<MaterialGroup, int, bool> fromCard)
+        {
+            if (snapshot == null || fromCard == null) return;
+            try
+            {
+                MaterialEditorBridge.MoveToNewParts(chaCtrl, snapshot, fromCard);
+            }
+            catch (Exception ex)
+            {
+                AdvancedLoaderPlugin.Logger.LogError($"Failed to move Material Editor data to the new parts: {ex}");
+            }
+        }
+
+        private static void PasteMaterialsOnWornParts(ChaControl chaCtrl, CardData card, LoadOptions options, Func<MaterialGroup, int, bool> fromCard, int? sourceCoordinate = null)
+        {
+            if ((options.MaterialGroups & (MaterialGroup.Hair | MaterialGroup.Clothes)) == 0 || fromCard == null) return;
+            try
+            {
+                MaterialEditorBridge.PasteOntoWornParts(chaCtrl, card.Materials, fromCard, sourceCoordinate);
+            }
+            catch (Exception ex)
+            {
+                AdvancedLoaderPlugin.Logger.LogError($"Failed to put the card's Material Editor data on the worn parts: {ex}");
+            }
+        }
+
+        private static void StopKeepingMaterials()
         {
             if (MaterialEditorPresence.Available) MaterialEditorBridge.ClearKeep();
         }
@@ -186,6 +258,25 @@ namespace AdvancedLoader
             }
         }
 
+        private static string CardGroups(CardData card, int outfit, LoadOptions options) =>
+            options.Accessories != AccessoryMode.Selected
+                ? card.GroupsOf(outfit)
+                : AccessoryGroups.Format(AccessoryGroups.Parse(card.GroupsOf(outfit)).Where(g => options.SelectedGroups.Contains(g.First)));
+
+        private static void KeepAccessoryGroups(ChaControl chaCtrl, int outfit, string before, string card, IDictionary<int, int> targetToSource, bool replacesAll,
+            List<ChaFileAccessory.PartsInfo> slots)
+        {
+            if (!AccessoryGroups.Available) return;
+            try
+            {
+                AccessoryGroups.Set(chaCtrl, outfit, AccessoryGroups.Combine(before, card, targetToSource, replacesAll, s => s >= slots.Count || AccessoryData.IsEmpty(slots[s])));
+            }
+            catch (Exception ex)
+            {
+                AdvancedLoaderPlugin.Logger.LogError($"Failed to keep Advanced Accessories Menu groups: {ex}");
+            }
+        }
+
         private static AccessoryLoadContext NewContext(ChaControl chaCtrl, CardData card, LoadOptions options)
         {
             return new AccessoryLoadContext
@@ -195,9 +286,15 @@ namespace AdvancedLoader
                 Placement = options.Placement,
                 Shift = options.Shift,
                 SelectedSlots = options.SelectedSlots.ToList(),
-                CardSlots = card.AccessorySlots
+                CardSlots = card.AccessorySlots,
+                Groups = AccessoryGroups.Get(chaCtrl, CurrentOutfit(chaCtrl) ?? 0),
+                Blocks = CardBlocks(card, options)
             };
         }
+
+        private static List<IList<int>> CardBlocks(CardData card, LoadOptions options) =>
+            AccessoryGroups.Blocks(card.SlotGroups, options,
+                AccessoryData.SourceSlots(options.Accessories, card.AccessorySlots ?? new List<ChaFileAccessory.PartsInfo>(), options.SelectedSlots));
 
         private static void FixAccessoryMaterials(ChaControl chaCtrl, CardData card, AccessoryLoadContext context, object snapshot, bool replacedByGame)
         {

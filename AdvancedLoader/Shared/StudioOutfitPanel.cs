@@ -58,7 +58,7 @@ namespace AdvancedLoader
 
         public static Rect ScreenRect(Transform transform)
         {
-            var canvas = transform.GetComponentInParent<Canvas>();
+            var canvas = UiCache.CanvasOf(transform);
             var camera = canvas == null || canvas.renderMode == RenderMode.ScreenSpaceOverlay ? null : canvas.worldCamera;
             var corners = new Vector3[4];
             ((RectTransform)transform).GetWorldCorners(corners);
