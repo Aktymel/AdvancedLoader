@@ -4,9 +4,7 @@ A plugin that loads only specific parts of a card without overwriting the rest.
 
 Supported games: Honey Select 2, AI-Shoujo, Koikatsu Sunshine, Koikatsu.
 
-| Honey Select 2 | Koikatsu Sunshine |
-|---|---|
-| ![Advanced load in Honey Select 2](AdvancedLoader/screenshots/5_hs2_ex.png) | ![Advanced load in Koikatsu Sunshine](AdvancedLoader/screenshots/7_kks_ex.png) |
+![Advanced Loader](AdvancedLoader/screenshots/ALM.png)
 
 ## Features
 
@@ -27,17 +25,6 @@ Supported games: Honey Select 2, AI-Shoujo, Koikatsu Sunshine, Koikatsu.
 ### Koikatsu Sunshine / Koikatsu: outfits
 
 - Supports outfits
-
-![Outfits](AdvancedLoader/screenshots/6_kks_outfits.png)
-## Screenshots
-
-| Character | Accessories, Material Editor, other plugins |
-|---|---|
-| ![Character](AdvancedLoader/screenshots/1_body.png) | ![Accessories and Material Editor](AdvancedLoader/screenshots/2_body_acc_mat.png) |
-| **Accessories into free slots** | **Clothes** |
-| ![Accessories into free slots](AdvancedLoader/screenshots/3_acc.png) | ![Clothes](AdvancedLoader/screenshots/4_clothes.png) |
-| **Other plugins** | |
-| ![Other plugins](AdvancedLoader/screenshots/8_plugins.png) | |
 
 ## Requirements
 
