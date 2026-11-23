@@ -26,10 +26,12 @@ namespace AdvancedLoader
             try
             {
                 var chaCtrl = target;
+                OtherPlugins.OnCharacter(chaCtrl);
                 // Studio's Change has no load flags: plugins take everything from the card, so what was not loaded is put back afterwards
                 var studioCharacter = MakerAPI.InsideAndLoaded ? null : StudioCharaPanel.CharacterOf(chaCtrl);
                 var inStudio = studioCharacter != null;
                 if (chaCtrl == null || (!MakerAPI.InsideAndLoaded && !inStudio)) yield break;
+                UndoSnapshot.Take(chaCtrl);
 
                 if (MaterialEditorPresence.Available) MaterialEditorBridge.LogHair(chaCtrl, "before character load");
                 var materialSnapshot = TakeMaterialSnapshot(chaCtrl, card);
@@ -66,6 +68,7 @@ namespace AdvancedLoader
                         var charaLoad = UnityEngine.Object.FindObjectOfType<CvsO_CharaLoad>();
                         if (charaLoad == null)
                         {
+                            UndoSnapshot.Drop();
                             AdvancedLoaderPlugin.Logger.LogMessage("Open \"Load character\" in maker once, then try again");
                             yield break;
                         }
@@ -152,6 +155,8 @@ namespace AdvancedLoader
                 OtherPlugins.Restore(otherPlugins);
                 StopKeepingMaterials();
                 reload?.Stop();
+                UndoSnapshot.Commit(target);
+                OtherPlugins.CharacterChanged();
                 Busy = false;
             }
         }
@@ -164,9 +169,11 @@ namespace AdvancedLoader
             bool[] characterAccessories = null;
             object[] aacSlots = null;
             AccessoryLoadContext context = null;
+            Action restoreOutfitBonemod = null;
             try
             {
                 var chaCtrl = target;
+                UndoSnapshot.Take(chaCtrl);
                 var inMaker = MakerAPI.InsideAndLoaded;
                 // No load buttons outside maker, so plugins take all clothes and accessories from the card
                 var pluginsLoadAll = !inMaker;
@@ -185,6 +192,7 @@ namespace AdvancedLoader
                 if (options.Clothes) button = options.ReplacesAllAccessories ? 3 : 1;
                 else button = mode == AccessoryMode.Keep ? 0 : 2;
                 var needsHook = mode != AccessoryMode.Keep && !options.ReplacesAllAccessories;
+                restoreOutfitBonemod = UseOutfitBonemod(chaCtrl, card, options, button != 0);
 
                 if (button != 0)
                 {
@@ -242,10 +250,42 @@ namespace AdvancedLoader
                 AacBridge.PlaceSlots(target, aacSlots, card.AacSlots, context?.TargetToSource, true, true);
                 AacBridge.SetFlags(target, characterAccessories, context?.TargetToSource, false, null);
                 AacBridge.LogFlags(target, "after outfit load");
+                restoreOutfitBonemod?.Invoke();
                 StopKeepingMaterials();
                 reload?.Stop();
+                UndoSnapshot.Commit(target);
+                OtherPlugins.CharacterChanged();
                 Busy = false;
             }
+        }
+
+        // What the game's Load buttons call, with every toggle on
+        private static bool PressMakerLoad(LoadMode mode, string path, out Action restoreToggles)
+        {
+            restoreToggles = null;
+            var fileName = System.IO.Path.GetFileName(path);
+            if (mode == LoadMode.Character)
+            {
+                var charaLoad = UnityEngine.Object.FindObjectOfType<CvsO_CharaLoad>();
+                var window = charaLoad == null ? null : Traverse.Create(charaLoad).Field("charaLoadWin").GetValue<CustomCharaWindow>();
+                if (window == null || window.onClick03 == null) return false;
+                var parameters = Singleton<CustomBase>.Instance.modeNew;
+                var toggles = Traverse.Create(window).Field("tglLoadOption").GetValue<Toggle[]>();
+                if (toggles != null)
+                {
+                    restoreToggles = KeepToggles(toggles);
+                    for (var i = 0; i < toggles.Length; i++) SetToggle(toggles, i, i != 4 || parameters);
+                }
+                window.onClick03(new CustomCharaFileInfo { FullPath = path, FileName = fileName }, 0x0F | (parameters ? 0x10 : 0));
+                return true;
+            }
+
+            var clothesLoad = UnityEngine.Object.FindObjectOfType<CvsC_ClothesLoad>();
+            var clothesWindow = clothesLoad == null ? null : Traverse.Create(clothesLoad).Field("clothesLoadWin").GetValue<CustomClothesWindow>();
+            if (clothesWindow == null || clothesWindow.onClick03 == null) return false;
+            SetCoordinateButtonClicked(3);
+            clothesWindow.onClick03(new CustomClothesFileInfo { FullPath = path, FileName = fileName });
+            return true;
         }
 
         private static void SetCoordinateButtonClicked(int button)

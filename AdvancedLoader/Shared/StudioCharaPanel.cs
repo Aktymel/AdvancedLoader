@@ -62,13 +62,48 @@ namespace AdvancedLoader
             return character != null && character.charInfo == chaCtrl ? character : null;
         }
 
+        public static int Sex
+        {
+            get
+            {
+                var list = Shown;
+                return list == null ? 1 : Traverse.Create(list).Field("sex").GetValue<int>();
+            }
+        }
+
+        public static RawImage CardImage
+        {
+            get
+            {
+                var list = Shown;
+                return list == null ? null : Traverse.Create(list).Field("imageChara").GetValue<RawImage>();
+            }
+        }
+
+        public static Button LoadButton
+        {
+            get
+            {
+                var list = Shown;
+                return list == null ? null : Traverse.Create(list).Field("buttonLoad").GetValue<Button>();
+            }
+        }
+
+        public static Button ChangeButton
+        {
+            get
+            {
+                var list = Shown;
+                return list == null ? null : Traverse.Create(list).Field("buttonChange").GetValue<Button>();
+            }
+        }
+
         // The game's "Change" button of the shown list in GUI coordinates
         public static Rect? ChangeButtonRect
         {
             get
             {
-                var list = Shown;
-                var button = list == null ? null : Traverse.Create(list).Field("buttonChange").GetValue<Button>();
+                var button = ChangeButton;
                 return button == null || !button.gameObject.activeInHierarchy ? (Rect?)null : StudioOutfitPanel.ScreenRect(button.transform);
             }
         }

@@ -18,6 +18,9 @@ Supported games: Honey Select 2, AI-Shoujo, Koikatsu Sunshine, Koikatsu.
 - **Material Editor groups** (Body, Head, Eyes, Hair, Clothes): you can chose whether you want to load ME or not.
 - **Other plugins**: select which plugin you also want to load or skip.
 - **Advanced Accessories Menu**: integration with my other plugin to load groups.
+- **Load all** and **Undo** of the last load.
+- **Bonemod tab**: compare the card's bones with the character and pick which to load.
+- **Shape Editor** and **Blendshape Creator**: pick which shape edits to load.
 
 
 
@@ -62,9 +65,14 @@ Copy the file for your game into `BepInEx\plugins`.
 | [More Outfit Slots](https://github.com/IllusionMods/KK_Plugins) | — | 1.1.2+ |
 | [Additional Accessory Controls](https://github.com/OrangeSpork/AdditionalAccessoryControls) | 1.2.5+ | — |
 | [Advanced Accessories Menu](https://github.com/Aktymel/AdvancedAccessoriesMenu) | 0.1.1+ | 0.1.1+ |
+| KKShapeEditor.Lite | — | 2.0.10+ |
+| Blendshape Creator | — | 2.0+ |
+| [Uncensor Selector](https://github.com/IllusionMods/KK_Plugins) | 3.12.1+ | 3.12.3+ |
+| [Pushup](https://github.com/IllusionMods/KK_Plugins) | — | 1.4.0+ |
 
 ## Changelog
 
+- 2.0.0 — Load all, Undo, Bonemod tab, Shape Editor and Blendshape Creator, new window.
 - 1.5.0 — Hair categories, AAM integration, ME fixes.
 - 1.4.2 — Bonemod in Studio character load fix.
 - 1.4.1 — Plugin data in Studio character load fix.

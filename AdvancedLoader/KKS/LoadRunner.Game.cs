@@ -23,13 +23,19 @@ namespace AdvancedLoader
             bool[] previousToggles = null;
             OtherPlugins.State otherPlugins = null;
             ReloadWait reload = null;
+#if KKS || KK
+            ShapeEditorBridge.Pending shapes = null;
+            BlendshapeCreatorBridge.Pending blendshapes = null;
+#endif
             try
             {
                 var chaCtrl = target;
+                OtherPlugins.OnCharacter(chaCtrl);
                 // Studio's Change has no load flags: plugins take everything from the card, so what was not loaded is put back afterwards
                 var studioCharacter = MakerAPI.InsideAndLoaded ? null : StudioCharaPanel.CharacterOf(chaCtrl);
                 var inStudio = studioCharacter != null;
                 if (chaCtrl == null || (!MakerAPI.InsideAndLoaded && !inStudio)) yield break;
+                UndoSnapshot.Take(chaCtrl);
 
                 // Accessories without Clothes are loaded through the outfits too, with every clothes piece kept
                 var loadOutfits = options.Clothes || options.Accessories != AccessoryMode.Keep;
@@ -45,6 +51,13 @@ namespace AdvancedLoader
                 var outfitNames = loadOutfits ? Enumerable.Range(0, chaCtrl.chaFile.coordinate.Length).Select(i => Outfits.GetName(chaCtrl, i)).ToList() : null;
 
                 var anyNative = options.Face || options.Body || options.Hair || options.Parameters || loadOutfits || OtherPlugins.AnyLoaded(options, card);
+#if KKS || KK
+                if (!anyNative && options.SelectedShapes.Count > 0)
+                {
+                    shapes = ShapeEditorBridge.Begin(chaCtrl, false);
+                    blendshapes = BlendshapeCreatorBridge.Begin(chaCtrl, false);
+                }
+#endif
                 OutfitLoadContext outfitContext = null;
                 Func<MaterialGroup, int, bool> materialsFromCard = null;
 
@@ -65,10 +78,10 @@ namespace AdvancedLoader
                     }
                     else
                     {
-                        var page = Resources.FindObjectsOfTypeAll<CustomCharaFile>().FirstOrDefault(x => x.gameObject.scene.IsValid());
-                        var window = page == null ? null : Traverse.Create(page).Field("fileWindow").GetValue<CustomFileWindow>();
+                        var window = LoadPageWindow(true);
                         if (window == null)
                         {
+                            UndoSnapshot.Drop();
                             AdvancedLoaderPlugin.Logger.LogMessage("Open \"Load character\" in maker once, then try again");
                             yield break;
                         }
@@ -81,9 +94,14 @@ namespace AdvancedLoader
                         SetToggle(toggles, 2, options.Hair);
                         SetToggle(toggles, 3, parameters);
                         SetToggle(toggles, 4, loadOutfits);
-                        load = () => LoadCharacterLikeGame(chaCtrl, card.Path, options.Face, options.Body, options.Hair, parameters, loadOutfits);
+                        var reloadBody = OtherPlugins.LoadsPlugin(options, card, OtherPlugins.UncensorSelectorGUID);
+                        load = () => LoadCharacterLikeGame(chaCtrl, card.Path, options.Face, options.Body, options.Hair, parameters, loadOutfits, reloadBody);
                     }
                     otherPlugins = OtherPlugins.Apply(options, card);
+#if KKS || KK
+                    shapes = ShapeEditorBridge.Begin(chaCtrl, false);
+                    blendshapes = BlendshapeCreatorBridge.Begin(chaCtrl, false);
+#endif
 
                     if (loadOutfits)
                     {
@@ -114,6 +132,9 @@ namespace AdvancedLoader
                         Target = chaCtrl.chaFile, BodyParts = options.BodyParts, FaceParts = options.FaceParts, HairParts = options.HairParts,
                         KeptPluginData = OtherPlugins.KeptData(chaCtrl, options, card)
                     };
+#if KKS || KK
+                    if (blendshapes != null) Hooks.Parts.KeptPluginData[BlendshapeCreatorBridge.DataId] = blendshapes.Kept;
+#endif
                     try
                     {
                         reload = ReloadWait.Start(chaCtrl);
@@ -138,13 +159,13 @@ namespace AdvancedLoader
 
                 if (anyNative) KeepOutfitAccessoryGroups(chaCtrl, card, options, outfitContext, groupsBefore);
 
-                Diag.Log($"After the wait: height {chaCtrl.chaFile.custom.body.shapeValueBody[0]}");
+                Diag.Log($"After the wait: {DescribeBody(chaCtrl)}");
                 if (AbmxPresence.Available) Diag.Log($"Bonemod loaded: {AbmxBridge.DescribeAll(chaCtrl)}");
                 if (bonemodSnapshot != null) ApplyBonemod(chaCtrl, card, options, bonemodSnapshot, inStudio);
                 if (AbmxPresence.Available) Diag.Log($"Bonemod restored: {AbmxBridge.DescribeAll(chaCtrl)}");
 #if DEBUG
                 for (var i = 0; i < 60; i++) yield return null;
-                Diag.Log($"60 frames later: height {chaCtrl.chaFile.custom.body.shapeValueBody[0]}");
+                Diag.Log($"60 frames later: {DescribeBody(chaCtrl)}");
                 if (AbmxPresence.Available) Diag.Log($"Bonemod 60 frames later: {AbmxBridge.DescribeAll(chaCtrl)}");
 #endif
 
@@ -160,6 +181,11 @@ namespace AdvancedLoader
                     KeepUntickedHairMaterials(chaCtrl, options, materialSnapshot);
                 }
 
+#if KKS || KK
+                var shapePlan = CharacterShapePlan(chaCtrl, card, options, outfitContext);
+                ShapeEditorBridge.Finish(shapes, card.ShapeEditor, shapePlan);
+                BlendshapeCreatorBridge.Finish(blendshapes, card.Blendshapes, shapePlan);
+#endif
                 AdvancedLoaderPlugin.Logger.LogMessage($"Loaded {System.IO.Path.GetFileName(card.Path)}");
             }
             finally
@@ -167,8 +193,14 @@ namespace AdvancedLoader
                 if (toggles != null && previousToggles != null)
                     for (var i = 0; i < toggles.Length && i < previousToggles.Length; i++) SetToggle(toggles, i, previousToggles[i]);
                 OtherPlugins.Restore(otherPlugins);
+#if KKS || KK
+                ShapeEditorBridge.Release(shapes);
+                BlendshapeCreatorBridge.Release(blendshapes);
+#endif
                 StopKeepingMaterials();
                 reload?.Stop();
+                UndoSnapshot.Commit(target);
+                OtherPlugins.CharacterChanged();
                 Busy = false;
             }
         }
@@ -180,9 +212,15 @@ namespace AdvancedLoader
             ReloadWait reload = null;
             Toggle[] toggles = null;
             bool[] previousToggles = null;
+            Action restoreOutfitBonemod = null;
+#if KKS || KK
+            ShapeEditorBridge.Pending shapes = null;
+            BlendshapeCreatorBridge.Pending blendshapes = null;
+#endif
             try
             {
                 var chaCtrl = target;
+                UndoSnapshot.Take(chaCtrl);
                 var inMaker = MakerAPI.InsideAndLoaded;
                 // No load toggles outside maker, so plugins take all clothes and accessories from the card
                 var pluginsLoadAll = !inMaker;
@@ -202,10 +240,17 @@ namespace AdvancedLoader
                 var materialsFromCard = MaterialsFromCard(options, clothesFromCard, () => context?.TargetToSource);
 
                 if (loadClothes || loadAccessories) reload = ReloadWait.Start(chaCtrl);
+                restoreOutfitBonemod = UseOutfitBonemod(chaCtrl, card, options, loadClothes || loadAccessories);
+#if KKS || KK
+                if (!loadClothes && !loadAccessories && options.SelectedShapes.Count > 0)
+                {
+                    shapes = ShapeEditorBridge.Begin(chaCtrl, true);
+                    blendshapes = BlendshapeCreatorBridge.Begin(chaCtrl, true);
+                }
+#endif
                 if (loadClothes || loadAccessories)
                 {
-                    var page = inMaker ? Resources.FindObjectsOfTypeAll<CustomCoordinateFile>().FirstOrDefault(x => x.gameObject.scene.IsValid()) : null;
-                    var window = page == null ? null : Traverse.Create(page).Field("fileWindow").GetValue<CustomFileWindow>();
+                    var window = inMaker ? LoadPageWindow(false) : null;
                     if (window != null)
                     {
                         // The game's API reports these toggles to plugins as the coordinate load flags
@@ -224,6 +269,10 @@ namespace AdvancedLoader
                     if (loadClothes || studioCharacter != null)
                         Hooks.Parts = new PartsLoadContext { CoordinateTarget = chaCtrl.nowCoordinate, ClothesParts = clothesFromCard };
                     KeepMaterials(chaCtrl, materialSnapshot, materialsFromCard);
+#if KKS || KK
+                    shapes = ShapeEditorBridge.Begin(chaCtrl, true);
+                    blendshapes = BlendshapeCreatorBridge.Begin(chaCtrl, true);
+#endif
                     try
                     {
                         if (studioCharacter != null)
@@ -262,17 +311,73 @@ namespace AdvancedLoader
                         FixAccessoryMaterials(chaCtrl, card, context, materialSnapshot, replacedByGame: loadAccessories);
                 }
 
+#if KKS || KK
+                var shapePlan = CoordinateShapePlan(chaCtrl, card, options, outfit, loadAccessories ? context : null);
+                ShapeEditorBridge.Finish(shapes, card.ShapeEditor, shapePlan);
+                BlendshapeCreatorBridge.Finish(blendshapes, card.Blendshapes, shapePlan);
+#endif
                 AdvancedLoaderPlugin.Logger.LogMessage($"Loaded {System.IO.Path.GetFileName(card.Path)}");
             }
             finally
             {
                 if (toggles != null && previousToggles != null)
                     for (var i = 0; i < toggles.Length && i < previousToggles.Length; i++) SetToggle(toggles, i, previousToggles[i]);
+                restoreOutfitBonemod?.Invoke();
+#if KKS || KK
+                ShapeEditorBridge.Release(shapes);
+                BlendshapeCreatorBridge.Release(blendshapes);
+#endif
                 StopKeepingMaterials();
                 reload?.Stop();
+                UndoSnapshot.Commit(target);
+                OtherPlugins.CharacterChanged();
                 Busy = false;
             }
         }
+
+#if KKS || KK
+        private static ShapeEditorBridge.Plan CharacterShapePlan(ChaControl chaCtrl, CardData card, LoadOptions options, OutfitLoadContext context)
+        {
+            var plan = new ShapeEditorBridge.Plan
+            {
+                Selected = new HashSet<string>(options.SelectedShapes), HairLoaded = options.Hair, HairParts = options.HairParts,
+                ClothesLoaded = options.Clothes, ClothesParts = options.ClothesParts, CurrentOutfit = chaCtrl.fileStatus.coordinateType,
+                Fits = (part, sourceIndex, sourceOutfit, targetOutfit, targetIndex, path, vertices, subdivided) =>
+                    ShapeFit.Fits(card, chaCtrl, part, sourceIndex, sourceOutfit, targetOutfit, targetIndex, path, vertices, subdivided)
+            };
+            if (context == null)
+            {
+                for (var t = 0; t < Math.Min(card.CardOutfits.Count, chaCtrl.chaFile.coordinate.Length); t++) plan.SourceFor[t] = t;
+            }
+            else if (context.FinalCount > 0)
+            {
+                foreach (var pair in context.SourceToTarget) plan.SourceFor[pair.Value] = pair.Key;
+                plan.OutfitsLoaded = true;
+                if (options.Accessories != AccessoryMode.Keep) plan.AccessoryTargets = context.AccessoryTargets;
+            }
+            return plan;
+        }
+
+        private static ShapeEditorBridge.Plan CoordinateShapePlan(ChaControl chaCtrl, CardData card, LoadOptions options, int outfit, AccessoryLoadContext context)
+        {
+            var plan = new ShapeEditorBridge.Plan
+            {
+                Selected = new HashSet<string>(options.SelectedShapes), ClothesLoaded = options.Clothes, ClothesParts = options.ClothesParts, CurrentOutfit = outfit,
+                Fits = (part, sourceIndex, sourceOutfit, targetOutfit, targetIndex, path, vertices, subdivided) =>
+                    ShapeFit.Fits(card, chaCtrl, part, sourceIndex, sourceOutfit, targetOutfit, targetIndex, path, vertices, subdivided)
+            };
+            plan.SourceFor[outfit] = 0;
+            plan.OutfitsLoaded = true;
+            if (options.Accessories == AccessoryMode.Keep) return plan;
+            if (context?.TargetToSource != null) plan.AccessoryTargets[outfit] = context.TargetToSource;
+            else if (options.ReplacesAllAccessories)
+            {
+                var count = Math.Max(Math.Max(AccessoryData.VanillaSlotCount, chaCtrl.nowCoordinate.accessory.parts.Length), card.AccessorySlots?.Count ?? 0);
+                plan.AccessoryTargets[outfit] = Enumerable.Range(0, count).ToDictionary(x => x, x => x);
+            }
+            return plan;
+        }
+#endif
 
         private static void KeepOutfitAccessoryGroups(ChaControl chaCtrl, CardData card, LoadOptions options, OutfitLoadContext context, Dictionary<int, string> before)
         {
@@ -427,7 +532,44 @@ namespace AdvancedLoader
             }
         }
 
-        private static void LoadCharacterLikeGame(ChaControl chaCtrl, string path, bool face, bool body, bool hair, bool parameters, bool coordinate)
+        // The load and the save page are the same class
+        private static CustomFileWindow LoadPageWindow(bool character)
+        {
+            var pages = character
+                ? Resources.FindObjectsOfTypeAll<CustomCharaFile>().Cast<Component>()
+                : Resources.FindObjectsOfTypeAll<CustomCoordinateFile>().Cast<Component>();
+            var windows = pages.Where(x => x.gameObject.scene.IsValid())
+                .Select(x => Traverse.Create(x).Field("fileWindow").GetValue<CustomFileWindow>()).Where(x => x != null).ToList();
+            var loadType = character ? CustomFileWindow.FileWindowType.CharaLoad : CustomFileWindow.FileWindowType.CoordinateLoad;
+            return windows.FirstOrDefault(x => x.fwType == loadType) ?? windows.FirstOrDefault();
+        }
+
+        // The game's "All on" and "Load" of the open load page
+        private static bool PressMakerLoad(LoadMode mode, string path, out Action restoreToggles)
+        {
+            restoreToggles = null;
+            var character = mode == LoadMode.Character;
+            var window = LoadPageWindow(character);
+            var allOn = window == null ? null : character ? window.btnChaLoadAllOn : window.btnCoordeLoadAllOn;
+            var load = window == null ? null : character ? window.btnChaLoadLoad : window.btnCoordeLoadLoad;
+            Diag.Log($"Load all {mode}: window {(window == null ? "missing" : window.fwType.ToString())}, all on {(allOn != null ? "found" : "missing")}, load {(load != null ? "found" : "missing")}");
+            if (allOn == null || load == null) return false;
+
+            var toggles = character
+#if KK
+                ? new[] { window.tglChaLoadFace, window.tglChaLoadBody, window.tglChaLoadHair, window.tglChaLoadParam, window.tglChaLoadCoorde }
+#else
+                ? new[] { window.tglChaLoadFace, window.tglChaLoadBody, window.tglChaLoadHair, window.tglChaLoadParam, window.tglChaLoadCoorde, window.tglChaLoadExtension }
+#endif
+                : new[] { window.tglCoordeLoadClothes, window.tglCoordeLoadAcs };
+            restoreToggles = KeepToggles(toggles);
+            allOn.onClick.Invoke();
+            load.onClick.Invoke();
+            return true;
+        }
+
+        // Uncensor Selector swaps the body mesh only when the body is rebuilt
+        private static void LoadCharacterLikeGame(ChaControl chaCtrl, string path, bool face, bool body, bool hair, bool parameters, bool coordinate, bool reloadBody = false)
         {
 #if KK
             chaCtrl.chaFile.LoadFileLimited(path, chaCtrl.sex, face, body, hair, parameters, coordinate);
@@ -435,7 +577,7 @@ namespace AdvancedLoader
             chaCtrl.chaFile.LoadFileLimited(path, chaCtrl.sex, face, body, hair, parameters, coordinate, false);
 #endif
             chaCtrl.ChangeCoordinateType();
-            chaCtrl.Reload(!coordinate, !face && !coordinate, !hair, !body);
+            chaCtrl.Reload(!coordinate, !face && !coordinate, !hair, !body && !reloadBody);
             Singleton<CustomBase>.Instance.updateCustomUI = true;
         }
 

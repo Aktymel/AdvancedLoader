@@ -34,6 +34,16 @@ namespace AdvancedLoader
         // object: no Additional Accessory Controls types here
         public object[] AacSlots;
 
+#if KKS || KK
+        public PluginData ShapeEditor;
+        public PluginData Blendshapes;
+        public CardParts Parts;
+#endif
+
+        public List<ShapeEdit> ShapeEdits = new List<ShapeEdit>();
+
+        public bool HasOutfitBonemod => Mode == LoadMode.Coordinate && AbmxPresence.OutfitBonemod && PluginDataIds.Contains(AbmxBridge.DataId);
+
         public string GroupsOf(int outfit) => OutfitGroups.TryGetValue(outfit, out var groups) ? groups : null;
 
 #if KKS || KK
@@ -90,6 +100,19 @@ namespace AdvancedLoader
                         AdvancedLoaderPlugin.Logger.LogWarning($"Could not read Additional Accessory Controls settings from {path}: {ex.Message}");
                     }
                 }
+#if KKS || KK
+                if (ShapeEditorBridge.Available)
+                    card.ShapeEditor = mode == LoadMode.Character
+                        ? ExtendedSave.GetExtendedDataById(temp, ShapeEditorBridge.DataId)
+                        : ExtendedSave.GetExtendedDataById(AccessoryData.CardCoordinate(temp), ShapeEditorBridge.DataId);
+                if (BlendshapeCreatorBridge.Available)
+                    card.Blendshapes = mode == LoadMode.Character
+                        ? ExtendedSave.GetExtendedDataById(temp, BlendshapeCreatorBridge.DataId)
+                        : ExtendedSave.GetExtendedDataById(AccessoryData.CardCoordinate(temp), BlendshapeCreatorBridge.DataId);
+                card.ShapeEdits = ShapeEditorBridge.ListEdits(card.ShapeEditor);
+                card.ShapeEdits.AddRange(BlendshapeCreatorBridge.ListEdits(card.Blendshapes, mode == LoadMode.Coordinate));
+                if (card.ShapeEdits.Count > 0) card.Parts = CardParts.Read(temp, mode);
+#endif
 #if KKS || KK
                 if (mode == LoadMode.Character)
                 {

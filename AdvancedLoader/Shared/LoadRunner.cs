@@ -1,7 +1,9 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using HarmonyLib;
+using KKAPI.Maker;
 using UnityEngine.UI;
 #if HS2 || AI
 using AIChara;
@@ -16,6 +18,72 @@ namespace AdvancedLoader
         private static void SetToggle(Toggle[] toggles, int index, bool value)
         {
             if (toggles != null && index < toggles.Length && toggles[index] != null) toggles[index].isOn = value;
+        }
+
+        private static Action KeepToggles(Toggle[] toggles)
+        {
+            var before = toggles.Select(x => x != null && x.isOn).ToArray();
+            return () =>
+            {
+                for (var i = 0; i < toggles.Length; i++) SetToggle(toggles, i, before[i]);
+            };
+        }
+
+        public static IEnumerator LoadAll(LoadMode mode, ChaControl target, string path)
+        {
+            if (Busy || target == null || string.IsNullOrEmpty(path)) yield break;
+            Busy = true;
+            ReloadWait reload = null;
+            Action restoreToggles = null;
+            try
+            {
+                UndoSnapshot.Take(target);
+                reload = ReloadWait.Start(target);
+                var pressed = MakerAPI.InsideAndLoaded ? PressMakerLoad(mode, path, out restoreToggles) : Press(OutsideMakerLoadButton(mode, target));
+                if (!pressed)
+                {
+                    UndoSnapshot.Drop();
+                    AdvancedLoaderPlugin.Logger.LogMessage("The game's load button was not found");
+                    yield break;
+                }
+                for (var frame = 0; !ReloadWait.Ready(reload, frame); frame++) yield return null;
+                Diag.Log($"Load all done: {DescribeBody(target)}");
+                if (AbmxPresence.Available) Diag.Log($"Bonemod after Load all: {AbmxBridge.DescribeAll(target)}");
+#if DEBUG
+                for (var i = 0; i < 60; i++) yield return null;
+                Diag.Log($"Load all, 60 frames later: {DescribeBody(target)}");
+#endif
+                AdvancedLoaderPlugin.Logger.LogMessage($"Loaded {System.IO.Path.GetFileName(path)}");
+            }
+            finally
+            {
+                restoreToggles?.Invoke();
+                reload?.Stop();
+                UndoSnapshot.Commit(target);
+                OtherPlugins.CharacterChanged();
+                Busy = false;
+            }
+        }
+
+        private static string DescribeBody(ChaControl chaCtrl)
+        {
+            var body = chaCtrl.chaFile.custom.body;
+            return $"body shapes [{string.Join(", ", body.shapeValueBody.Select(x => x.ToString("0.###")).ToArray())}], bust softness {body.bustSoftness}, weight {body.bustWeight}";
+        }
+
+        public static bool LoadAllAvailable => KKAPI.KoikatuAPI.GetCurrentGameMode() != KKAPI.GameMode.MainGame;
+
+        private static Button OutsideMakerLoadButton(LoadMode mode, ChaControl target)
+        {
+            if (mode == LoadMode.Character) return StudioCharaPanel.CharacterOf(target) != null ? StudioCharaPanel.ChangeButton : null;
+            return StudioOutfitPanel.CharacterOf(target) != null ? StudioOutfitPanel.LoadButton : null;
+        }
+
+        private static bool Press(Button button)
+        {
+            if (button == null || !button.gameObject.activeInHierarchy || !button.interactable) return false;
+            button.onClick.Invoke();
+            return true;
         }
 
         private static bool[] HoldCharacterAccessories(ChaControl chaCtrl, CardData card, LoadOptions options)
@@ -72,9 +140,29 @@ namespace AdvancedLoader
             };
         }
 
+        private static Action UseOutfitBonemod(ChaControl chaCtrl, CardData card, LoadOptions options, bool gameLoads)
+        {
+            if (!AbmxPresence.OutfitBonemod) return null;
+            try
+            {
+                if (!gameLoads)
+                {
+                    if (options.OutfitBonemod) AbmxBridge.LoadOutfitBonemod(chaCtrl, card.Path);
+                    return null;
+                }
+                Diag.Log($"Outfit bonemod {(options.OutfitBonemod ? "from the card" : "kept")}");
+                return AbmxBridge.UseOutfitBonemod(options.OutfitBonemod);
+            }
+            catch (Exception ex)
+            {
+                AdvancedLoaderPlugin.Logger.LogError($"Failed to load outfit bonemod: {ex}");
+                return null;
+            }
+        }
+
         private static object TakeBonemodSnapshot(ChaControl chaCtrl, LoadOptions options, bool always = false)
         {
-            if (!AbmxPresence.Available || !(always || options.Face || options.Body)) return null;
+            if (!AbmxPresence.Available || !(always || options.Face || options.Body || options.SelectedBones.Count > 0)) return null;
             try
             {
                 return AbmxBridge.Snapshot(chaCtrl);
@@ -93,7 +181,7 @@ namespace AdvancedLoader
             {
                 AbmxBridge.Apply(chaCtrl, card.Bonemod, snapshot,
                     options.Face || allLoaded, options.Face ? options.FaceParts : FacePart.None,
-                    options.Body || allLoaded, options.Body ? options.BodyParts : BodyPart.None);
+                    options.Body || allLoaded, options.Body ? options.BodyParts : BodyPart.None, options.SelectedBones);
             }
             catch (Exception ex)
             {

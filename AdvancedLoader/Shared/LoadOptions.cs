@@ -52,6 +52,7 @@ namespace AdvancedLoader
         public AccessoryMode Accessories = AccessoryMode.Keep;
         public readonly HashSet<int> SelectedSlots = new HashSet<int>();
         public readonly HashSet<int> SelectedGroups = new HashSet<int>();
+        public readonly HashSet<string> SelectedShapes = new HashSet<string>();
         public AccessoryPlacement Placement = AccessoryPlacement.SameSlots;
         public int Shift = 10;
 
@@ -62,10 +63,15 @@ namespace AdvancedLoader
         public int OutfitShift = 4;
 #endif
 
+        // Advanced-window bonemod bones taken from the card
+        public readonly HashSet<string> SelectedBones = new HashSet<string>();
+
         public void ClearSlots()
         {
             SelectedSlots.Clear();
             SelectedGroups.Clear();
+            SelectedShapes.Clear();
+            SelectedBones.Clear();
         }
 
         public bool ReplacesAllAccessories => Accessories == AccessoryMode.All && Placement == AccessoryPlacement.SameSlots;
@@ -74,6 +80,9 @@ namespace AdvancedLoader
         public bool MaterialCleanCopy = true;
         public bool MaterialFollowAccessories = true;
 
+
+        public bool OutfitBonemod = true;
+
         // Missing = off
         public readonly Dictionary<string, bool> OtherPlugins = new Dictionary<string, bool>();
 
@@ -81,7 +90,7 @@ namespace AdvancedLoader
             ? new LoadOptions { Face = true, Body = true, Hair = true, Clothes = true, Accessories = AccessoryMode.All }
             : new LoadOptions { Clothes = true, Accessories = AccessoryMode.All };
 
-        // "Name=value;" pairs. Selected slots and outfits belong to one card, so they are not saved
+        // "Name=value;" pairs. Selected slots, outfits and bones belong to one card, so they are not saved
         public string Save()
         {
             var values = new Dictionary<string, object>
@@ -93,6 +102,7 @@ namespace AdvancedLoader
                 { "OutfitSelection", (int)OutfitSelection }, { "OutfitPlacement", (int)OutfitPlacement }, { "OutfitShift", OutfitShift },
 #endif
                 { "MaterialGroups", (int)MaterialGroups }, { "MaterialCleanCopy", MaterialCleanCopy }, { "MaterialFollowAccessories", MaterialFollowAccessories },
+                { "OutfitBonemod", OutfitBonemod },
                 { "Plugins", string.Join("|", OtherPlugins.Where(x => x.Value).Select(x => x.Key).ToArray()) }
             };
             return string.Join(";", values.Select(x => x.Key + "=" + x.Value).ToArray());
@@ -128,6 +138,7 @@ namespace AdvancedLoader
             MaterialGroups = (MaterialGroup)Read(values, "MaterialGroups", (int)MaterialGroups);
             MaterialCleanCopy = Read(values, "MaterialCleanCopy", MaterialCleanCopy);
             MaterialFollowAccessories = Read(values, "MaterialFollowAccessories", MaterialFollowAccessories);
+            OutfitBonemod = Read(values, "OutfitBonemod", OutfitBonemod);
             if (values.TryGetValue("Plugins", out var plugins))
             {
                 OtherPlugins.Clear();

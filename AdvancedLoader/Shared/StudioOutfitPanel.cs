@@ -46,12 +46,14 @@ namespace AdvancedLoader
         // Where BrowserFolders puts its folder window (StudioOutfitFolders)
         public static Rect FolderWindow => new Rect(Screen.width * 0.06f, Screen.height * 0.32f, Screen.width * 0.13f, Screen.height * 0.4f);
 
+        public static Button LoadButton => _panel?.Field("buttonLoad").GetValue<Button>();
+
         // The game's load button of the list ("Switch Costume") in GUI coordinates
         public static Rect? LoadButtonRect
         {
             get
             {
-                var button = _panel?.Field("buttonLoad").GetValue<Button>();
+                var button = LoadButton;
                 return button == null || !button.gameObject.activeInHierarchy ? (Rect?)null : ScreenRect(button.transform);
             }
         }
